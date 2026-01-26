@@ -32,11 +32,19 @@ public:
     void showGraph(const Graph& g, const QVector<QPointF>& pos); // pos[1..n]
     void resetStyle();
     void applyStep(const Step& step);
-
+    bool addEdge(int u, int v);          // 动态加边（只改视图）
+    void setEdgeEditMode(bool on) { mEdgeEditMode = on; } // 可选：面板勾选后不需按Shift
+signals:
+    void edgeRequested(int u, int v);
 public slots:
     void setForceEnabled(bool on);
     void startForceLayout();
     void stopForceLayout();
+protected:
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 private slots:
     void onForceTick();
 private:
@@ -72,8 +80,12 @@ private:
         mAlpha = std::max(mAlpha, a);
         if (mForceEnabled && !mForceTimer.isActive()) mForceTimer.start();
     }
-protected:
-    void resizeEvent(QResizeEvent* event) override;
+    bool mEdgeEditMode = false;          // true=一直处于加边模式；false=按Shift才加边
+    int mEdgeFrom = -1;
+    NodeItem* mEdgeFromNode = nullptr;
+    QGraphicsLineItem* mPreviewLine = nullptr;
+
+    QMap<QPair<int,int>, double> mEdgeWeight; // 新边弹簧权重 0..1（更顺滑）
 };
 
 class NodeItem : public QObject, public QGraphicsEllipseItem {

@@ -3,7 +3,7 @@
 #include <QBrush>
 #include <QDebug>
 #include <QTimer>
-
+#include <QMouseEvent>
 
 GraphView::GraphView(QWidget* parent)
     : QGraphicsView(parent)
@@ -65,6 +65,7 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
         auto* e = new EdgeItem(nodeItem[u], nodeItem[v], R);
         mScene->addItem(e);
         edgeItem[{u, v}] = e;
+        mEdgeWeight[{u, v}] = 1.0; // 已有边=满强度
     }
 
     // 3) 视图自适应（保留你原来的逻辑）
@@ -83,7 +84,7 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
     mLayoutBounds = mScene->itemsBoundingRect().adjusted(-200, -200, 200, 200);
     mScene->setSceneRect(mLayoutBounds);
 
-    if (mForceEnabled) startForceLayout();
+
     //末尾布局启动前，把速度清零、alpha 回到 1：
     mAlpha = 1.0;
     for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
@@ -142,6 +143,11 @@ void GraphView::onForceTick()
 
     QList<int> ids = nodeItem.keys();
 
+    // 每 tick 让新边权重更接近 1（让新边更顺滑）
+    for (auto it = mEdgeWeight.begin(); it != mEdgeWeight.end(); ++it) {
+        it.value() = std::min(1.0, it.value() + 0.08);
+    }
+
     // 2) 点-点排斥 + 防重叠
     for (int a = 0; a < ids.size(); ++a) {
         for (int b = a + 1; b < ids.size(); ++b) {
@@ -188,7 +194,8 @@ void GraphView::onForceTick()
 
         QPointF dir = d / dist;
         double stretch = dist - mRestLen;
-        QPointF f = dir * (mSpringK * stretch);
+        double w = mEdgeWeight.value({u, v}, 1.0);
+        QPointF f = dir * (mSpringK * w * stretch);
 
         force[u] += f;
         force[v] -= f;
@@ -240,3 +247,93 @@ void GraphView::onForceTick()
     }
 }
 
+bool GraphView::addEdge(int u, int v)
+{
+    if (!mScene) return false;
+    if (!nodeItem.contains(u) || !nodeItem.contains(v)) return false;
+    if (edgeItem.contains({u, v})) return false;
+
+    auto* e = new EdgeItem(nodeItem[u], nodeItem[v], mNodeRadius);
+    mScene->addItem(e);
+    edgeItem[{u, v}] = e;
+
+    mEdgeWeight[{u, v}] = 0.0;  // 新边从 0 开始慢慢增强
+    heatUp(1.0);                // reheat
+    startForceLayout();         // 确保 timer 在跑
+    return true;
+}
+void GraphView::mousePressEvent(QMouseEvent* event)
+{
+    bool wantAddEdge = mEdgeEditMode || (event->modifiers() & Qt::ShiftModifier);
+
+    if (wantAddEdge && event->button() == Qt::LeftButton) {
+        QGraphicsItem* it = itemAt(event->pos());
+        NodeItem* node = nullptr;
+
+        if (it) {
+            node = dynamic_cast<NodeItem*>(it);
+            if (!node && it->parentItem())
+                node = dynamic_cast<NodeItem*>(it->parentItem()); // 点到文字时
+        }
+
+        // 点空白：取消
+        if (!node) {
+            if (mEdgeFromNode) mEdgeFromNode->setBrush(QBrush(Qt::white));
+            mEdgeFrom = -1; mEdgeFromNode = nullptr;
+            if (mPreviewLine) { delete mPreviewLine; mPreviewLine = nullptr; }
+            event->accept();
+            return;
+        }
+
+        if (mEdgeFrom == -1) {
+            // 选起点
+            mEdgeFrom = node->id();
+            mEdgeFromNode = node;
+            mEdgeFromNode->setBrush(QBrush(QColor(255, 255, 200))); // 高亮一下
+
+            if (!mPreviewLine) {
+                mPreviewLine = mScene->addLine(QLineF(node->pos(), node->pos()),
+                                               QPen(Qt::gray, 2, Qt::DashLine));
+                mPreviewLine->setZValue(-2);
+            } else {
+                mPreviewLine->setLine(QLineF(node->pos(), node->pos()));
+            }
+        } else {
+            // 选终点，发请求
+            int from = mEdgeFrom;
+            int to = node->id();
+
+            if (mEdgeFromNode) mEdgeFromNode->setBrush(QBrush(Qt::white));
+            mEdgeFrom = -1; mEdgeFromNode = nullptr;
+
+            if (mPreviewLine) { delete mPreviewLine; mPreviewLine = nullptr; }
+
+            if (from != to) emit edgeRequested(from, to);
+        }
+
+        heatUp(1.0);
+        event->accept();
+        return;
+    }
+
+    QGraphicsView::mousePressEvent(event);
+}
+
+void GraphView::mouseMoveEvent(QMouseEvent* event)
+{
+    if (mPreviewLine && mEdgeFromNode) {
+        QPointF p = mapToScene(event->pos());
+        mPreviewLine->setLine(QLineF(mEdgeFromNode->pos(), p));
+    }
+    QGraphicsView::mouseMoveEvent(event);
+}
+
+void GraphView::leaveEvent(QEvent* event)
+{
+    // 鼠标离开视图就取消预览
+    if (mEdgeFromNode) mEdgeFromNode->setBrush(QBrush(Qt::white));
+    mEdgeFrom = -1; mEdgeFromNode = nullptr;
+    if (mPreviewLine) { delete mPreviewLine; mPreviewLine = nullptr; }
+
+    QGraphicsView::leaveEvent(event);
+}
