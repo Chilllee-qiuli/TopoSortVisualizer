@@ -12,6 +12,9 @@
 #include <QGraphicsPathItem>
 #include <QGraphicsSimpleTextItem>
 #include <cmath>
+#include <QTimer>
+#include <QGraphicsSceneMouseEvent>
+#include <algorithm>
 
 
 #include "Graph.h"
@@ -30,12 +33,45 @@ public:
     void resetStyle();
     void applyStep(const Step& step);
 
+public slots:
+    void setForceEnabled(bool on);
+    void startForceLayout();
+    void stopForceLayout();
+private slots:
+    void onForceTick();
 private:
     QGraphicsScene* mScene = nullptr;
     QMap<int, NodeItem*> nodeItem;
     QMap<QPair<int,int>, class EdgeItem*> edgeItem;
 
     QRectF lastRect;
+
+    QTimer mForceTimer;
+    bool mForceEnabled = true;
+
+    // Force 参数（默认值先用这套，之后你可以做成 UI 可调）
+    // 如果你觉得“抖/乱飞”：减小 mDt 或减小 mRepulsion；如果“挤在一起”：增大 mRepulsion 或 mCollisionK。
+    double mDt = 0.08;
+    double mDamping = 0.85;       // 阻尼：越小越快停
+    double mRepulsion = 120000.0;  // 点-点排斥强度
+    double mSpringK = 0.08;       // 边弹簧强度
+    double mRestLen = 120.0;      // 理想边长
+    double mCenterPull = 0.002;  // 向中心的轻微拉力（避免跑飞）
+
+    QRectF mLayoutBounds;
+
+    // --- Force cooling / stability ---
+    double mAlpha = 1.0;
+    double mAlphaDecay = 0.03;   // 越大越快停
+    double mAlphaMin = 0.01;     // 小于它就停表
+    double mMaxSpeed = 20.0;     // 每 tick 最大位移速度
+    double mCollisionK = 1.2;    // 防重叠力度
+    qreal  mNodeRadius = 30.0;
+
+    void heatUp(double a = 1.0) {
+        mAlpha = std::max(mAlpha, a);
+        if (mForceEnabled && !mForceTimer.isActive()) mForceTimer.start();
+    }
 protected:
     void resizeEvent(QResizeEvent* event) override;
 };
@@ -55,10 +91,15 @@ public:
     bool fixed() const { return m_fixed; }
     void setFixed(bool f) { m_fixed = f; }
 
-    QPointF vel{0,0};
+    bool pinned() const { return m_pinned; }
+
+    QPointF vel{0, 0};
 
 signals:
     void moved();
+    void dragStarted();
+    void dragEnded();
+    void pinChanged(bool pinned);
 
 protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override {
@@ -66,16 +107,30 @@ protected:
         return QGraphicsEllipseItem::itemChange(change, value);
     }
 
+    void mousePressEvent(QGraphicsSceneMouseEvent *e) override {
+        emit dragStarted();
+        QGraphicsEllipseItem::mousePressEvent(e);
+    }
+
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *e) override {
-        m_fixed = true; // 放开就固定（也可以改成点击切换）
+        emit dragEnded();
         QGraphicsEllipseItem::mouseReleaseEvent(e);
+    }
+
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *e) override {
+        m_pinned = !m_pinned;
+        m_fixed = m_pinned;
+        emit pinChanged(m_pinned);
+        QGraphicsEllipseItem::mouseDoubleClickEvent(e);
     }
 
 private:
     int m_id;
     qreal m_r;
-    bool m_fixed = false;
+    bool m_fixed = false;   // 真正的“固定”
+    bool m_pinned = false;  // 双击切换 pin
 };
+
 
 class EdgeItem : public QObject, public QGraphicsPathItem {
     Q_OBJECT
