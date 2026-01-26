@@ -21,46 +21,51 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 {
     mScene->clear();
     nodeItem.clear();
-    nodeText.clear();
+    edgeItem.clear();
 
-    // 1) 先画边（线）
-    QPen edgePen(Qt::black);
-    for (auto [u, v] : g.edges) {
-        if (u <= 0 || v <= 0 || u >= pos.size() || v >= pos.size()) continue;
-        mScene->addLine(QLineF(pos[u], pos[v]), edgePen);
-    }
+    const qreal R = 30.0;
 
-    // 2) 再画点（圆 + 文本）
-    const double R = 30.0;
-    QPen nodePen(Qt::black);
-    QBrush nodeBrush(Qt::white);
-
+    // 1) 先建节点（必须先建，因为边要拿到节点指针）
     for (int i = 1; i <= g.n; i++) {
-        QPointF p = pos[i];
-        auto* ellipse = mScene->addEllipse(p.x() - R, p.y() - R, 2*R, 2*R, nodePen, nodeBrush);
-        auto* text = mScene->addText(QString::number(i));
-        text->setPos(p.x() - 6, p.y() - 10);
+        if (i <= 0 || i >= pos.size()) continue;
 
-        nodeItem[i] = ellipse;
-        nodeText[i] = text;
+        auto* node = new NodeItem(i, R);
+        node->setPen(QPen(Qt::black, 2));
+        node->setBrush(QBrush(Qt::white));
+        node->setPos(pos[i]);
+
+        // 文字做成 node 的子 item：节点动，文字自动跟随
+        auto* label = new QGraphicsSimpleTextItem(QString::number(i), node);
+        QRectF br = label->boundingRect();
+        label->setPos(-br.width() / 2.0, -br.height() / 2.0);
+
+        mScene->addItem(node);
+        nodeItem[i] = node;
     }
 
+    // 2) 再建边（EdgeItem 绑定两个 NodeItem，节点移动会触发 updatePath）
+    for (auto [u, v] : g.edges) {
+        if (!nodeItem.contains(u) || !nodeItem.contains(v)) continue;
+
+        auto* e = new EdgeItem(nodeItem[u], nodeItem[v], R);
+        mScene->addItem(e);
+        edgeItem[{u, v}] = e;
+    }
+
+    // 3) 视图自适应（保留你原来的逻辑）
     QRectF rect = mScene->itemsBoundingRect();
     rect = rect.adjusted(-80, -80, 80, 80);
     mScene->setSceneRect(rect);
 
-    // ✅ 关键 1：清掉之前可能很小的缩放变换
     resetTransform();
-
-    // ✅ 关键 2：保存下来，窗口 resize 时还会再 fit 一次
     lastRect = rect;
 
-    // ✅ 关键 3：延迟到界面布局完成后再 fit（避免 viewport 还是 0/很小）
     QTimer::singleShot(0, this, [this]() {
         if (!lastRect.isNull())
             fitInView(lastRect, Qt::KeepAspectRatio);
     });
 }
+
 
 void GraphView::resizeEvent(QResizeEvent* event)
 {
