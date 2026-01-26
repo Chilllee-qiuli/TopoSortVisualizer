@@ -23,6 +23,16 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(TopoSortVisualizer
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
+        Graph.h
+        Steps.h
+        TarjanSCC.h
+        TarjanSCC.cpp
+        Condense.h
+        Condense.cpp
+        TopoKahn.h
+        TopoKahn.cpp
+        GraphView.h
+        GraphView.cpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET TopoSortVisualizer APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
