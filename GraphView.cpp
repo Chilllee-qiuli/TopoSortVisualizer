@@ -23,11 +23,26 @@ GraphView::GraphView(QWidget* parent)
 void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 {
     mScene->clear();
+    // 避免空指针
+    mArenaItem = nullptr;
+    mEdgeWeight.clear();
+    mNodeCountHint = g.n;
     nodeItem.clear();
     edgeItem.clear();
 
     const qreal R = 30.0;
     mNodeRadius = R;
+
+    // 清理 step 相关状态
+    mActiveNode = -1;
+    mActiveEdge = {-1, -1};
+    mTopoOrderIndex = 0;
+    mBaseBrush.clear();
+    mBasePen.clear();
+    mBaseEdgePen.clear();
+    mIndegText.clear();
+    mOrderText.clear();
+
 
     // 1) 先建节点（必须先建，因为边要拿到节点指针）
     for (int i = 1; i <= g.n; i++) {
@@ -45,12 +60,19 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 
         mScene->addItem(node);
         nodeItem[i] = node;
+
+        // 记录默认样式
+        mBaseBrush[i] = node->brush();
+        mBasePen[i]   = node->pen();
+
         // 链接热启动
         connect(node, &NodeItem::dragStarted, this, [this]() {
             heatUp(1.0);
         });
-        connect(node, &NodeItem::dragEnded, this, [this]() {
+        connect(node, &NodeItem::dragEnded, this, [this, node]() {
+            clampNodeToArena(node);
             heatUp(0.6); // 放开后也“回温”一下，让它继续自然回弹
+            // 防止手把点拖到场外
         });
         connect(node, &NodeItem::pinChanged, this, [this](bool) {
             heatUp(0.8);
@@ -63,26 +85,38 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
         if (!nodeItem.contains(u) || !nodeItem.contains(v)) continue;
 
         auto* e = new EdgeItem(nodeItem[u], nodeItem[v], R);
+
+        // 之后 applyStep() 会改颜色、线宽。如果不保存 base style，就没法恢复原样。
         mScene->addItem(e);
         edgeItem[{u, v}] = e;
+        mBaseEdgePen[{u, v}] = e->pen(); // 记录默认边样式
+
         mEdgeWeight[{u, v}] = 1.0; // 已有边=满强度
     }
 
-    // 3) 视图自适应（保留你原来的逻辑）
-    QRectF rect = mScene->itemsBoundingRect();
-    rect = rect.adjusted(-80, -80, 80, 80);
-    mScene->setSceneRect(rect);
+    // // 3) 视图自适应（保留你原来的逻辑）
+    // QRectF rect = mScene->itemsBoundingRect();
+    // rect = rect.adjusted(-80, -80, 80, 80);
+    // mScene->setSceneRect(rect);
+
+    // resetTransform();
+    // lastRect = rect;
+
+    // QTimer::singleShot(0, this, [this]() {
+    //     if (!lastRect.isNull())
+    //         fitInView(lastRect, Qt::KeepAspectRatio);
+    // });
+
+    // mLayoutBounds = mScene->itemsBoundingRect().adjusted(-200, -200, 200, 200);
+    // mScene->setSceneRect(mLayoutBounds);
+
+    updateArena(g.n);
 
     resetTransform();
-    lastRect = rect;
-
     QTimer::singleShot(0, this, [this]() {
-        if (!lastRect.isNull())
-            fitInView(lastRect, Qt::KeepAspectRatio);
+        fitInView(lastRect, Qt::KeepAspectRatio);
     });
 
-    mLayoutBounds = mScene->itemsBoundingRect().adjusted(-200, -200, 200, 200);
-    mScene->setSceneRect(mLayoutBounds);
 
 
     //末尾布局启动前，把速度清零、alpha 回到 1：
@@ -94,25 +128,175 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 
 }
 
-
+// 把 lastRect 统一成 arena,让 arena 不小于窗口：
 void GraphView::resizeEvent(QResizeEvent* event)
 {
     QGraphicsView::resizeEvent(event);
-    if (!lastRect.isNull()) {
-        fitInView(lastRect, Qt::KeepAspectRatio);
-    }
+    updateArena(mNodeCountHint);
+    fitInView(lastRect, Qt::KeepAspectRatio);
 }
+
 
 
 void GraphView::resetStyle()
 {
-    // 先留空：后面做高亮/颜色的时候再写
+    mActiveNode = -1;
+    mActiveEdge = {-1, -1};
+    mTopoOrderIndex = 0;
+
+    // 恢复节点样式
+    for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
+        int id = it.key();
+        NodeItem* n = it.value();
+        if (!n) continue;
+        n->setBrush(mBaseBrush.value(id, QBrush(Qt::white)));
+        n->setPen(mBasePen.value(id, QPen(Qt::black, 2)));
+    }
+
+    // 恢复边样式
+    for (auto it = edgeItem.begin(); it != edgeItem.end(); ++it) {
+        auto key = it.key();
+        EdgeItem* e = it.value();
+        if (!e) continue;
+        e->setPen(mBaseEdgePen.value(key, QPen(Qt::black, 2)));
+    }
+
+    // 清掉入度/序号文字（它们是 node 的子 item，删掉最稳）
+    for (auto t : mIndegText)  delete t;
+    for (auto t : mOrderText)  delete t;
+    mIndegText.clear();
+    mOrderText.clear();
+}
+
+
+static QColor sccPaletteColor(int scc)
+{
+    // 一个简单可重复的配色：不同 scc 得到不同 hue
+    int hue = (scc * 47) % 360;
+    return QColor::fromHsv(hue, 80, 255);
 }
 
 void GraphView::applyStep(const Step& step)
 {
-    // 先留空：后面做播放 steps 的时候再写
+    auto unhighlightNode = [&](int id){
+        if (id < 0 || !nodeItem.contains(id)) return;
+        NodeItem* n = nodeItem[id];
+        if (!n) return;
+        n->setPen(mBasePen.value(id, QPen(Qt::black, 2)));
+    };
+
+    auto highlightNode = [&](int id){
+        if (id < 0 || !nodeItem.contains(id)) return;
+        if (mActiveNode != -1 && mActiveNode != id) unhighlightNode(mActiveNode);
+        mActiveNode = id;
+        NodeItem* n = nodeItem[id];
+        if (!n) return;
+        n->setPen(QPen(QColor(255, 140, 0), 4)); // 橙色粗边框
+    };
+
+    auto unhighlightEdge = [&](QPair<int,int> ekey){
+        if (!edgeItem.contains(ekey)) return;
+        EdgeItem* e = edgeItem[ekey];
+        if (!e) return;
+        e->setPen(mBaseEdgePen.value(ekey, QPen(Qt::black, 2)));
+    };
+
+    auto highlightEdge = [&](QPair<int,int> ekey){
+        if (!edgeItem.contains(ekey)) return;
+        if (mActiveEdge.first != -1 && mActiveEdge != ekey) unhighlightEdge(mActiveEdge);
+        mActiveEdge = ekey;
+        EdgeItem* e = edgeItem[ekey];
+        if (!e) return;
+        e->setPen(QPen(QColor(220, 20, 60), 3)); // 红色高亮边
+    };
+
+    auto ensureIndegText = [&](int id, int val){
+        if (id < 0 || !nodeItem.contains(id)) return;
+        NodeItem* n = nodeItem[id];
+        if (!n) return;
+
+        QGraphicsSimpleTextItem* t = mIndegText.value(id, nullptr);
+        if (!t) {
+            t = new QGraphicsSimpleTextItem("", n);
+            mIndegText[id] = t;
+        }
+        t->setText(QString("in:%1").arg(val));
+        QRectF br = t->boundingRect();
+        t->setPos(-br.width()/2.0, mNodeRadius - br.height()); // 放在节点下半部
+    };
+
+    auto ensureOrderText = [&](int id, int order){
+        if (id < 0 || !nodeItem.contains(id)) return;
+        NodeItem* n = nodeItem[id];
+        if (!n) return;
+
+        QGraphicsSimpleTextItem* t = mOrderText.value(id, nullptr);
+        if (!t) {
+            t = new QGraphicsSimpleTextItem("", n);
+            mOrderText[id] = t;
+        }
+        t->setText(QString("#%1").arg(order));
+        QRectF br = t->boundingRect();
+        t->setPos(mNodeRadius - br.width(), -mNodeRadius); // 右上角
+    };
+
+    switch (step.type) {
+    case StepType::Visit: {
+        highlightNode(step.u);
+        // 可选：Visit 时轻微变黄（不覆盖 base，只临时改 brush）
+        if (nodeItem.contains(step.u)) {
+            nodeItem[step.u]->setBrush(QBrush(QColor(255, 255, 200)));
+        }
+        break;
+    }
+    case StepType::AssignSCC: {
+        highlightNode(step.u);
+        QColor c = sccPaletteColor(step.scc);
+        // AssignSCC 属于“持久状态”：更新 baseBrush，这样后面高亮恢复也还是 SCC 色
+        mBaseBrush[step.u] = QBrush(c);
+        if (nodeItem.contains(step.u)) nodeItem[step.u]->setBrush(mBaseBrush[step.u]);
+        break;
+    }
+    case StepType::TopoInitIndeg: {
+        // step.u 是节点，step.val 是 indeg
+        ensureIndegText(step.u, step.val);
+        break;
+    }
+    case StepType::TopoEnqueue: {
+        highlightNode(step.u);
+        // 入队也算“持久状态”（直到出队），更新 baseBrush
+        mBaseBrush[step.u] = QBrush(QColor(200, 255, 200));
+        if (nodeItem.contains(step.u)) nodeItem[step.u]->setBrush(mBaseBrush[step.u]);
+        break;
+    }
+    case StepType::TopoDequeue: {
+        highlightNode(step.u);
+        mTopoOrderIndex++;
+        ensureOrderText(step.u, mTopoOrderIndex);
+
+        // 出队 -> 已输出：更新 baseBrush
+        mBaseBrush[step.u] = QBrush(QColor(200, 220, 255));
+        if (nodeItem.contains(step.u)) nodeItem[step.u]->setBrush(mBaseBrush[step.u]);
+        break;
+    }
+
+    // 顺手支持这俩（可留着以后再开）
+    case StepType::TopoIndegDec: {
+        // step.v 是被减入度的点，step.val 是减完后的 indeg
+        ensureIndegText(step.v, step.val);
+        highlightEdge({step.u, step.v});
+        break;
+    }
+    case StepType::BuildCondensedEdge: {
+        highlightEdge({step.u, step.v});
+        break;
+    }
+
+    default:
+        break;
+    }
 }
+
 void GraphView::startForceLayout() {
     if (!mForceTimer.isActive()) mForceTimer.start();
 }
@@ -238,7 +422,8 @@ void GraphView::onForceTick()
         QPointF np = n->pos() + n->vel;
 
         // 边界约束
-        const double margin = 40.0;
+        const double margin = mNodeRadius + 12;
+
         QRectF r = mLayoutBounds;
         np.setX(std::min(r.right()  - margin, std::max(r.left() + margin, np.x())));
         np.setY(std::min(r.bottom() - margin, std::max(r.top()  + margin, np.y())));
@@ -336,4 +521,41 @@ void GraphView::leaveEvent(QEvent* event)
     if (mPreviewLine) { delete mPreviewLine; mPreviewLine = nullptr; }
 
     QGraphicsView::leaveEvent(event);
+}
+void GraphView::updateArena(int n)
+{
+    if (!mScene) return;
+    if (n <= 0) n = nodeItem.size();
+
+    // arena 边长随 n 增大（经验公式：sqrt(n) 级别）
+    double sideByN = std::sqrt((double)n) * (mRestLen * 3.0);
+    double side = std::max(900.0, sideByN);
+
+    // 至少不小于当前 viewport（避免“看起来跑出去”）
+    side = std::max(side, (double)viewport()->width());
+    side = std::max(side, (double)viewport()->height());
+
+    mLayoutBounds = QRectF(-side/2, -side/2, side, side);
+    mScene->setSceneRect(mLayoutBounds);
+
+    // 画一个可见边框（你说“场地没边界”就靠它）
+    if (!mArenaItem) {
+        mArenaItem = mScene->addRect(mLayoutBounds, QPen(QColor(200,200,200), 2, Qt::DashLine));
+        mArenaItem->setZValue(-10);
+    } else {
+        mArenaItem->setRect(mLayoutBounds);
+    }
+
+    lastRect = mLayoutBounds; // ✅关键：以后 fitInView 就用这个
+}
+
+void GraphView::clampNodeToArena(NodeItem* n)
+{
+    if (!n) return;
+    const double margin = mNodeRadius + 12;
+    QRectF r = mLayoutBounds;
+    QPointF p = n->pos();
+    p.setX(std::min(r.right()  - margin, std::max(r.left() + margin, p.x())));
+    p.setY(std::min(r.bottom() - margin, std::max(r.top()  + margin, p.y())));
+    n->setPos(p);
 }
