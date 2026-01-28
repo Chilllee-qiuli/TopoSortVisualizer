@@ -3,6 +3,7 @@
 #include <QString>
 
 enum class StepType {
+    ResetVisual, // Clear visualization state (val=0 transient, val=1 also clear SCC)
     Visit, PushStack, PopStack,
     AssignSCC,
     BuildCondensedEdge,

@@ -4,6 +4,49 @@
 #include <QDebug>
 #include <QTimer>
 #include <QMouseEvent>
+#include <QColor>
+#include <QVariant>
+
+namespace {
+/**
+ * Visualization state is stored on each QGraphicsItem using setData()/data().
+ *
+ * Why:
+ *  - Avoids intrusive changes to NodeItem/EdgeItem class definitions.
+ *  - Keeps algorithms UI-agnostic: algorithms only emit Steps.
+ *  - Allows deterministic redraw by calling resetStyle() at any time.
+ */
+constexpr int kRoleSccId   = 0x100;   // int: assigned SCC id, 0 = unassigned
+constexpr int kRoleInStack = 0x101;   // bool: Tarjan stack membership
+constexpr int kRoleActive  = 0x102;   // bool: transient highlight for the current step
+
+static QColor sccColor(int sccId) {
+    // Deterministic vivid palette via HSV. Stable across repaint/relayout.
+    const int hue = (sccId * 47) % 360;
+    return QColor::fromHsv(hue, 160, 255);
+}
+
+static void styleNode(NodeItem* node) {
+    if (!node) return;
+
+    const int  sccId   = node->data(kRoleSccId).toInt();
+    const bool inStack = node->data(kRoleInStack).toBool();
+    const bool active  = node->data(kRoleActive).toBool();
+
+    // Outline priority: active (red) > inStack (orange) > default (black)
+    QPen pen(Qt::black, 2);
+    if (active) {
+        pen = QPen(QColor(220, 40, 40), 4);
+    } else if (inStack) {
+        pen = QPen(QColor(255, 140, 0), 3);
+    }
+    node->setPen(pen);
+
+    // Fill: SCC color is persistent once assigned; otherwise keep white.
+    if (sccId > 0) node->setBrush(QBrush(sccColor(sccId)));
+    else node->setBrush(QBrush(Qt::white));
+}
+} // namespace
 
 GraphView::GraphView(QWidget* parent)
     : QGraphicsView(parent)
@@ -37,6 +80,12 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
         node->setPen(QPen(Qt::black, 2));
         node->setBrush(QBrush(Qt::white));
         node->setPos(pos[i]);
+
+        // Initialize per-node visualization state.
+        node->setData(kRoleSccId, 0);
+        node->setData(kRoleInStack, false);
+        node->setData(kRoleActive, false);
+
 
         // 文字做成 node 的子 item：节点动，文字自动跟随
         auto* label = new QGraphicsSimpleTextItem(QString::number(i), node);
@@ -106,12 +155,71 @@ void GraphView::resizeEvent(QResizeEvent* event)
 
 void GraphView::resetStyle()
 {
-    // 先留空：后面做高亮/颜色的时候再写
+    // Re-render all nodes based on visualization state stored in item data.
+    for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
+        styleNode(it.value());
+    }
 }
 
 void GraphView::applyStep(const Step& step)
 {
-    // 先留空：后面做播放 steps 的时候再写
+    // Apply a single algorithm step to the scene.
+    //
+    // Design:
+    //  - Persistent state (SCC id / stack membership) is stored per-node using item data roles.
+    //  - Step application only mutates these roles, then calls resetStyle() to re-render.
+    //  - This keeps algorithm code decoupled from Qt UI code and makes playback deterministic.
+
+    // Clear previous transient highlight.
+    for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
+        it.value()->setData(kRoleActive, false);
+    }
+
+    // Special: Reset visualization state.
+    if (step.type == StepType::ResetVisual) {
+        const bool clearScc = (step.val != 0);
+        for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
+            NodeItem* node = it.value();
+            if (!node) continue;
+            node->setData(kRoleActive, false);
+            node->setData(kRoleInStack, false);
+            if (clearScc) node->setData(kRoleSccId, 0);
+        }
+        resetStyle();
+        return;
+    }
+
+    NodeItem* nodeU = nodeItem.contains(step.u) ? nodeItem[step.u] : nullptr;
+
+    switch (step.type) {
+    case StepType::Visit:
+        if (nodeU) nodeU->setData(kRoleActive, true);
+        break;
+    case StepType::PushStack:
+        if (nodeU) {
+            nodeU->setData(kRoleInStack, true);
+            nodeU->setData(kRoleActive, true);
+        }
+        break;
+    case StepType::PopStack:
+        if (nodeU) {
+            nodeU->setData(kRoleInStack, false);
+            nodeU->setData(kRoleActive, true);
+        }
+        break;
+    case StepType::AssignSCC:
+        if (nodeU) {
+            nodeU->setData(kRoleSccId, step.scc);
+            nodeU->setData(kRoleInStack, false);
+            nodeU->setData(kRoleActive, true);
+        }
+        break;
+    default:
+        // Not handled in this milestone. Keep as no-op for forward compatibility.
+        break;
+    }
+
+    resetStyle();
 }
 void GraphView::startForceLayout() {
     if (!mForceTimer.isActive()) mForceTimer.start();

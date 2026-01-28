@@ -8,6 +8,10 @@
 #include <QSpinBox>
 #include <QPushButton>
 #include <QTextEdit>
+#include <QTimer>
+#include <QLabel>
+#include <QAction>
+#include "Steps.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -29,10 +33,31 @@ private:
     //保存一个指向 GraphView 的指针，后面便于调用 showGraph() 画图。
     GraphView* view = nullptr;
 
+
+// --- Docks / panels ---
+QDockWidget* mGraphDock = nullptr;
+QDockWidget* mAlgoDock  = nullptr;
+QAction* mGraphDockAction = nullptr;
+QAction* mAlgoDockAction  = nullptr;
+
+// Edge statistics UI
+QLabel* edgeCountLabel = nullptr;
+
+void setupDocks();
+void setupPanelsMenu();
+void updateEdgeCountUI();
+
     void onCreateGraph();
     void onAddEdge();
     void onAddEdgesFromText();
     void onEdgeRequested(int u, int v);
+
+    // Algorithm controls (Step 4: Tarjan SCC visualization)
+    void onRunSCC();
+    void onPlayPause();
+    void onNextStep();
+    void onResetAlgo();
+    void onPlayTick();
 
 private:
     Graph mGraph;
@@ -42,6 +67,19 @@ private:
     QSpinBox* uSpin = nullptr;
     QSpinBox* vSpin = nullptr;
     QTextEdit* edgesEdit = nullptr;
+
+    // --- Algo playback state ---
+    QVector<Step> mSteps;
+    int mStepIndex = 0;
+    bool mPlaying = false;
+    QTimer mPlayTimer;
+
+    // --- Algo UI widgets ---
+    QPushButton* runSccBtn = nullptr;
+    QPushButton* playBtn = nullptr;
+    QPushButton* nextBtn = nullptr;
+    QPushButton* resetAlgoBtn = nullptr;
+    QTextEdit* logEdit = nullptr;
 
     bool addEdgeImpl(int u, int v); // 统一入口
 
