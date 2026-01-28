@@ -15,7 +15,7 @@
 #include <QTimer>
 #include <QGraphicsSceneMouseEvent>
 #include <algorithm>
-
+#include <QGraphicsRectItem>
 
 #include "Graph.h"
 #include "Steps.h"
@@ -86,6 +86,24 @@ private:
     QGraphicsLineItem* mPreviewLine = nullptr;
 
     QMap<QPair<int,int>, double> mEdgeWeight; // 新边弹簧权重 0..1（更顺滑）
+
+    QGraphicsRectItem* mArenaItem = nullptr;
+    int mNodeCountHint = 0;
+
+    void updateArena(int n);
+    void clampNodeToArena(NodeItem* n);
+
+    // --- Step playback visuals ---
+    int mActiveNode = -1;
+    QPair<int,int> mActiveEdge = {-1, -1};
+    int mTopoOrderIndex = 0;
+
+    QMap<int, QBrush> mBaseBrush;
+    QMap<int, QPen>   mBasePen;
+    QMap<QPair<int,int>, QPen> mBaseEdgePen;
+
+    QMap<int, QGraphicsSimpleTextItem*> mIndegText;   // 入度显示
+    QMap<int, QGraphicsSimpleTextItem*> mOrderText;   // 拓扑输出序号显示
 };
 
 class NodeItem : public QObject, public QGraphicsEllipseItem {
