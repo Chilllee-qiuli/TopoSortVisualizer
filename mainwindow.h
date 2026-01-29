@@ -12,6 +12,8 @@
 #include <QLabel>
 #include <QAction>
 #include "Steps.h"
+#include "TarjanSCC.h"
+#include "Condense.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -54,6 +56,8 @@ void updateEdgeCountUI();
 
     // Algorithm controls (Step 4: Tarjan SCC visualization)
     void onRunSCC();
+    void onShowDAG();
+    void onShowOriginal();
     void onPlayPause();
     void onNextStep();
     void onResetAlgo();
@@ -80,6 +84,17 @@ private:
     QPushButton* nextBtn = nullptr;
     QPushButton* resetAlgoBtn = nullptr;
     QTextEdit* logEdit = nullptr;
+
+    // Step-5 UI (switch to condensed DAG view)
+    QPushButton* showDagBtn = nullptr;
+    QPushButton* showOriBtn = nullptr;
+
+    // --- Cached algorithm results (used across phases) ---
+    bool mHasScc = false;
+    bool mShowingDag = false;
+    SCCResult mSccRes;         // SCC mapping for the current original graph
+    Graph mDag;                // condensed DAG
+    QVector<QPointF> mPosOriginalSnapshot; // positions used to compute SCC centroids
 
     bool addEdgeImpl(int u, int v); // 统一入口
 

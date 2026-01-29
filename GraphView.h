@@ -16,6 +16,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <algorithm>
 #include <QGraphicsRectItem>
+#include <QStringList>
 
 #include "Graph.h"
 #include "Steps.h"
@@ -30,6 +31,34 @@ public:
     explicit GraphView(QWidget* parent = nullptr);
 
     void showGraph(const Graph& g, const QVector<QPointF>& pos); // pos[1..n]
+
+    /**
+     * @brief showGraphEx Rebuilds the scene from a graph + positions with optional labels/colors.
+     *
+     * Industrial rationale:
+     *  - The visual layer (QGraphicsScene) is treated as a pure projection of a graph state.
+     *    Rebuilding the scene makes mode switches (Original graph <-> Condensed DAG) deterministic.
+     *  - Optional labels/colors allow higher-level controllers (MainWindow) to keep GraphView
+     *    generic and reusable across algorithm phases (SCC/Condense/Topo).
+     *
+     * @param g         Graph to display. Node IDs must be 1..g.n.
+     * @param pos       Node positions, indexed by node ID. pos[0] is ignored.
+     * @param labels    Optional node labels (labels[1..n]). If empty, uses numeric labels.
+     * @param colorId   Optional persistent color group id per node (colorId[1..n]).
+     *                 When provided, nodes will be filled with the SCC palette of that id.
+     */
+    void showGraphEx(const Graph& g,
+                     const QVector<QPointF>& pos,
+                     const QStringList& labels,
+                     const QVector<int>& colorId);
+
+    /**
+     * @brief snapshotPositions Capture current node positions for N nodes.
+     *
+     * Used by step-5 (switch to DAG): we compute SCC centroids from the *current* layout,
+     * so the condensed graph appears at a meaningful starting position.
+     */
+    QVector<QPointF> snapshotPositions(int n) const;
     void resetStyle();
     void applyStep(const Step& step);
     bool addEdge(int u, int v);          // 动态加边（只改视图）

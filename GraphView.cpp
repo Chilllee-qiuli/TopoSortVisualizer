@@ -65,59 +65,73 @@ GraphView::GraphView(QWidget* parent)
 
 void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 {
+    // Keep the original API for existing callers.
+    showGraphEx(g, pos, QStringList(), QVector<int>());
+
+}
+
+void GraphView::showGraphEx(const Graph& g,
+                            const QVector<QPointF>& pos,
+                            const QStringList& labels,
+                            const QVector<int>& colorId)
+{
+    // Scene rebuild is intentional:
+    //  - It avoids incremental "diff" logic across modes (Original vs DAG).
+    //  - It guarantees a deterministic state after each phase transition.
     mScene->clear();
     nodeItem.clear();
     edgeItem.clear();
+    mEdgeWeight.clear();
+    mIndegText.clear();
+    mOrderText.clear();
 
     const qreal R = 30.0;
     mNodeRadius = R;
 
-    // 1) 先建节点（必须先建，因为边要拿到节点指针）
+    // 1) Nodes first (edges need pointers to NodeItem).
     for (int i = 1; i <= g.n; i++) {
         if (i <= 0 || i >= pos.size()) continue;
 
         auto* node = new NodeItem(i, R);
         node->setPen(QPen(Qt::black, 2));
-        node->setBrush(QBrush(Qt::white));
         node->setPos(pos[i]);
 
         // Initialize per-node visualization state.
-        node->setData(kRoleSccId, 0);
+        const int cid = (i < colorId.size()) ? colorId[i] : 0;
+        node->setData(kRoleSccId, cid);
         node->setData(kRoleInStack, false);
         node->setData(kRoleActive, false);
 
-
-        // 文字做成 node 的子 item：节点动，文字自动跟随
-        auto* label = new QGraphicsSimpleTextItem(QString::number(i), node);
+        // Label follows the node (child item).
+        const QString text = (i < labels.size() && !labels[i].isEmpty())
+                                 ? labels[i]
+                                 : QString::number(i);
+        auto* label = new QGraphicsSimpleTextItem(text, node);
         QRectF br = label->boundingRect();
         label->setPos(-br.width() / 2.0, -br.height() / 2.0);
 
         mScene->addItem(node);
         nodeItem[i] = node;
-        // 链接热启动
-        connect(node, &NodeItem::dragStarted, this, [this]() {
-            heatUp(1.0);
-        });
-        connect(node, &NodeItem::dragEnded, this, [this]() {
-            heatUp(0.6); // 放开后也“回温”一下，让它继续自然回弹
-        });
-        connect(node, &NodeItem::pinChanged, this, [this](bool) {
-            heatUp(0.8);
-        });
 
+        // Reheat physics when user interacts.
+        connect(node, &NodeItem::dragStarted, this, [this]() { heatUp(1.0); });
+        connect(node, &NodeItem::dragEnded,   this, [this]() { heatUp(0.6); });
+        connect(node, &NodeItem::pinChanged,  this, [this](bool) { heatUp(0.8); });
     }
 
-    // 2) 再建边（EdgeItem 绑定两个 NodeItem，节点移动会触发 updatePath）
+    // 2) Edges.
     for (auto [u, v] : g.edges) {
         if (!nodeItem.contains(u) || !nodeItem.contains(v)) continue;
-
         auto* e = new EdgeItem(nodeItem[u], nodeItem[v], R);
         mScene->addItem(e);
         edgeItem[{u, v}] = e;
-        mEdgeWeight[{u, v}] = 1.0; // 已有边=满强度
+        mEdgeWeight[{u, v}] = 1.0; // Existing edges start at full strength.
     }
 
-    // 3) 视图自适应（保留你原来的逻辑）
+    // 3) Re-render all items (e.g. SCC palette fills).
+    resetStyle();
+
+    // 4) View framing & force layout bootstrap.
     QRectF rect = mScene->itemsBoundingRect();
     rect = rect.adjusted(-80, -80, 80, 80);
     mScene->setSceneRect(rect);
@@ -126,20 +140,29 @@ void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
     lastRect = rect;
 
     QTimer::singleShot(0, this, [this]() {
-        if (!lastRect.isNull())
-            fitInView(lastRect, Qt::KeepAspectRatio);
+        if (!lastRect.isNull()) fitInView(lastRect, Qt::KeepAspectRatio);
     });
 
     mLayoutBounds = mScene->itemsBoundingRect().adjusted(-200, -200, 200, 200);
     mScene->setSceneRect(mLayoutBounds);
 
-
-    //末尾布局启动前，把速度清零、alpha 回到 1：
+    // Reset simulation state for a clean "settle" after rebuild.
     mAlpha = 1.0;
     for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
-        it.value()->vel = QPointF(0,0);
+        it.value()->vel = QPointF(0, 0);
     }
     if (mForceEnabled) startForceLayout();
+}
+
+QVector<QPointF> GraphView::snapshotPositions(int n) const
+{
+    QVector<QPointF> pos(n + 1);
+    for (int i = 1; i <= n; ++i) {
+        // QMap::operator[] is non-const; use value() for a const-safe lookup.
+        NodeItem* node = nodeItem.value(i, nullptr);
+        if (node) pos[i] = node->pos();
+    }
+    return pos;
 
 }
 
