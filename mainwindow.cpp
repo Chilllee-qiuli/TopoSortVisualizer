@@ -24,13 +24,13 @@ static QVector<QPointF> makeCirclePos(int n, double radius = 250.0)
 
 void MainWindow::setupPanelsMenu()
 {
-    // A dock can be closed via the [x] button, which only hides it (unless WA_DeleteOnClose is set).
-    // Provide menu toggles so the user can always bring panels back.
+    // Dock 面板点 [x] 关闭时默认只是隐藏（除非设置了 WA_DeleteOnClose 才会销毁）。
+    // 通过菜单提供开关，保证用户随时能把面板重新打开。
     QMenu* panelsMenu = menuBar()->addMenu(tr("Panels"));
     mGraphDockAction = mGraphDock->toggleViewAction();
     mAlgoDockAction  = mAlgoDock->toggleViewAction();
 
-    // Optional ergonomic shortcuts.
+    // 一些可选的易用性快捷设置。
     mGraphDockAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_1));
     mAlgoDockAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
 
@@ -99,7 +99,7 @@ void MainWindow::setupDocks()
     mGraphDock->setWidget(graphPanel);
     addDockWidget(Qt::RightDockWidgetArea, mGraphDock);
 
-    // Connect builder signals
+    // 连接“建图面板”的信号。
     connect(btnCreate, &QPushButton::clicked, this, &MainWindow::onCreateGraph);
     connect(btnAddEdge, &QPushButton::clicked, this, &MainWindow::onAddEdge);
     connect(btnAddBatch, &QPushButton::clicked, this, &MainWindow::onAddEdgesFromText);
@@ -119,7 +119,7 @@ void MainWindow::setupDocks()
     aLay->addWidget(runSccBtn);
 
     // **切换到 DAG 显示**：质心初始位置 + 再跑力导布局
-    // These buttons are enabled after we have a valid SCC result.
+    // 只有在拿到有效 SCC 结果后，这些按钮才可用。
     showDagBtn = new QPushButton(tr("展示 DAG (缩点结果)"), algoPanel);
     showDagBtn->setEnabled(false);
     aLay->addWidget(showDagBtn);
@@ -127,6 +127,13 @@ void MainWindow::setupDocks()
     showOriBtn = new QPushButton(tr("回溯"), algoPanel);
     showOriBtn->setEnabled(false);
     aLay->addWidget(showOriBtn);
+
+    aLay->addSpacing(8);
+    aLay->addWidget(new QLabel(tr("Topo 排序可视化 (Kahn)")));
+
+    runTopoBtn = new QPushButton(tr("开始拓扑排序 (Kahn)"), algoPanel);
+    runTopoBtn->setEnabled(false);
+    aLay->addWidget(runTopoBtn);
 
     playBtn = new QPushButton(tr("执行"), algoPanel);
     playBtn->setEnabled(false);
@@ -151,19 +158,20 @@ void MainWindow::setupDocks()
     algoPanel->setLayout(aLay);
     mAlgoDock->setWidget(algoPanel);
 
-    // Place below builder dock to reduce visual clutter.
+    // 放在建图面板下方，减少视觉拥挤。
     addDockWidget(Qt::RightDockWidgetArea, mAlgoDock);
     splitDockWidget(mGraphDock, mAlgoDock, Qt::Vertical);
 
-    // Connect algorithm signals
+    // 连接“算法面板”的信号。
     connect(runSccBtn, &QPushButton::clicked, this, &MainWindow::onRunSCC);
+    connect(runTopoBtn, &QPushButton::clicked, this, &MainWindow::onRunTopo);
     connect(showDagBtn, &QPushButton::clicked, this, &MainWindow::onShowDAG);
     connect(showOriBtn, &QPushButton::clicked, this, &MainWindow::onShowOriginal);
     connect(playBtn, &QPushButton::clicked, this, &MainWindow::onPlayPause);
     connect(nextBtn, &QPushButton::clicked, this, &MainWindow::onNextStep);
     connect(resetAlgoBtn, &QPushButton::clicked, this, &MainWindow::onResetAlgo);
 
-    // Menu toggles so docks can be reopened after being closed.
+    // 菜单开关：Dock 被关闭后可通过菜单重新打开。
     setupPanelsMenu();
 }
 
@@ -175,12 +183,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     view = new GraphView(this);
     setCentralWidget(view);
-// Panels (Graph Builder + Algorithms) are implemented as QDockWidgets.
-// Users can close them; we provide menu toggles to re-open them at any time.
+// 面板（建图 + 算法）使用 QDockWidget 实现。
+// 用户可能关闭面板；我们提供菜单开关，随时可重新打开。
 setupDocks();
 
-    // Playback timer (used by Play/Pause).
-    // Keep the interval moderate so the user can follow the algorithm visually.
+    // 播放计时器（用于 播放/暂停）。
+    // 间隔不要太小，保证用户能看清算法过程。
     mPlayTimer.setInterval(260);
     connect(&mPlayTimer, &QTimer::timeout, this, &MainWindow::onPlayTick);
 
@@ -192,8 +200,8 @@ connect(view, &GraphView::edgeRequested, this, &MainWindow::onEdgeRequested);
 
 bool MainWindow::addEdgeImpl(int u, int v)
 {
-    // Editing the original graph while the DAG is displayed is confusing.
-    // Force back to the original view so the user's mental model stays consistent.
+    // 当显示的是 DAG 时继续修改原图会让用户认知混乱。
+    // 因此强制切回原图视图，保持“所见即所算”。
     if (mShowingDag) onShowOriginal();
 
     if (mGraph.n <= 0) return false;
@@ -209,7 +217,7 @@ bool MainWindow::addEdgeImpl(int u, int v)
     view->addEdge(u, v);
     updateEdgeCountUI();
 
-    // Graph topology changed -> SCC / DAG caches are no longer valid.
+    // 图结构发生变化：已有 SCC / DAG 缓存不再有效。
     mHasScc = false;
     mShowingDag = false;
     mSccRes = SCCResult();
@@ -217,9 +225,11 @@ bool MainWindow::addEdgeImpl(int u, int v)
     mPosOriginalSnapshot.clear();
     if (showDagBtn) showDagBtn->setEnabled(false);
     if (showOriBtn) showOriBtn->setEnabled(false);
+    if (runTopoBtn) runTopoBtn->setEnabled(false);
+    if (runTopoBtn) runTopoBtn->setEnabled(false);
     
-    // Graph mutated -> invalidate cached algorithm steps and clear SCC state.
-    // This avoids displaying stale SCC colors/steps on a changed graph.
+    // 图被修改后：应当清空缓存的 Steps，并重置 SCC 状态，避免显示过期结果。
+    // 这样可以避免在新图上误用旧的 SCC 着色/播放步骤。
     if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 1, QString()});
     onResetAlgo();
     return true;
@@ -231,7 +241,7 @@ void MainWindow::onCreateGraph()
     mGraph = Graph(n);
     mPos = makeCirclePos(n);
 
-    // New graph -> clear cached SCC/DAG results.
+    // 新建图：清空 SCC/DAG 缓存结果。
     mHasScc = false;
     mShowingDag = false;
     mSccRes = SCCResult();
@@ -239,6 +249,7 @@ void MainWindow::onCreateGraph()
     mPosOriginalSnapshot.clear();
     if (showDagBtn) showDagBtn->setEnabled(false);
     if (showOriBtn) showOriBtn->setEnabled(false);
+    if (runTopoBtn) runTopoBtn->setEnabled(false);
 
     uSpin->setRange(1, n);
     vSpin->setRange(1, n);
@@ -246,7 +257,7 @@ void MainWindow::onCreateGraph()
     view->showGraph(mGraph, mPos);
     updateEdgeCountUI();
 
-    // Reset algorithm playback when graph changes.
+    // 图变化时重置算法播放状态。
     onResetAlgo();
 }
 
@@ -281,18 +292,21 @@ void MainWindow::onEdgeRequested(int u, int v)
 void MainWindow::onRunSCC()
 {
 
-    // SCC is defined on the original graph. If the condensed DAG is currently shown,
-    // switch back first so the visualization matches the algorithm input.
+    // SCC 定义在原图上；如果当前显示的是缩点 DAG，需要先切回原图以匹配算法输入。
+    // 先切回原图，保证“可视化对象”与“算法输入”一致。
     if (mShowingDag) onShowOriginal();
 
-    // Ensure we start from a clean visualization state so SCC colors appear progressively.
-    if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 1, QString("Reset visual state")});
-    // Run Tarjan SCC on the current directed graph and cache steps for playback.
-    // The algorithm itself is pure; visualization happens in GraphView::applyStep().
+    // 从干净的可视化状态开始播放，这样 SCC 着色能按步骤逐步出现。
+    if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 1, QString("重置可视化状态")});
+    // 对当前有向图运行 Tarjan SCC，并缓存步骤用于回放。
+    // 算法本身保持纯净；可视化在 GraphView::applyStep() 中完成。
     TarjanSCC tarjan;
     SCCResult res = tarjan.run(mGraph);
 
-    // Cache SCC mapping for Step-5 (condense DAG) and later steps (Topo playback).
+    mAlgoMode = AlgoMode::TarjanSCC;
+    mTopoRes = TopoResult();
+
+    // 缓存 SCC 映射：供第 5 步缩点建 DAG，以及第 6 步拓扑回放使用。
     mSccRes = res;
     mHasScc = true;
     mShowingDag = false;
@@ -310,43 +324,89 @@ void MainWindow::onRunSCC()
         logEdit->append("----");
     }
 
-    // Enable playback controls.
+    // 启用播放控制按钮。
     playBtn->setEnabled(!mSteps.isEmpty());
     nextBtn->setEnabled(!mSteps.isEmpty());
     resetAlgoBtn->setEnabled(true);
 
-    statusBar()->showMessage(QString("Tarjan SCC produced %1 steps").arg(mSteps.size()), 2500);
+    statusBar()->showMessage(QString("Tarjan SCC 产生了 %1 个步骤").arg(mSteps.size()), 2500);
+
+}
+
+void MainWindow::onRunTopo()
+{
+    if (!mHasScc) {
+        statusBar()->showMessage(tr("请先运行 SCC (Tarjan)"), 2000);
+        return;
+    }
+
+    // 拓扑排序在缩点后的 DAG 上进行。
+    // 若当前不是 DAG 视图，则先切换到 DAG（阶段切换需要确定性）。
+    if (!mShowingDag) onShowDAG();
+    if (!mShowingDag) return; // onShowDAG 可能因为 SCC 未就绪而失败。
+
+    // 清理瞬态高亮（保留 DAG 节点的 SCC 调色板颜色）。
+    if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 0, QString("为拓扑排序重置")});
+
+    TopoKahn topo;
+    mTopoRes = topo.run(mDag);
+
+    mSteps.clear();
+    mSteps.reserve((int)mTopoRes.steps.size());
+    for (const Step& s : mTopoRes.steps) mSteps.push_back(s);
+    mStepIndex = 0;
+    mAlgoMode = AlgoMode::TopoKahn;
+
+    if (logEdit) {
+        logEdit->clear();
+        logEdit->append(QString("Topo sort on DAG: n=%1, m=%2").arg(mDag.n).arg(mDag.edges.size()));
+        logEdit->append(QString("Result ok = %1").arg(mTopoRes.ok ? "true" : "false"));
+        logEdit->append("----");
+    }
+
+    playBtn->setEnabled(!mSteps.isEmpty());
+    nextBtn->setEnabled(!mSteps.isEmpty());
+    resetAlgoBtn->setEnabled(true);
+    playBtn->setText("播放");
+    mPlaying = false;
+    mPlayTimer.stop();
+
+    statusBar()->showMessage(QString("Topo(Kahn) 产生了 %1 个步骤").arg(mSteps.size()), 2500);
 }
 
 void MainWindow::onShowDAG()
 {
     if (!mHasScc) {
-        statusBar()->showMessage(tr("Please run SCC first"), 2000);
+        statusBar()->showMessage(tr("请先运行 SCC (Tarjan)"), 2000);
         return;
     }
 
-    // Once we switch to DAG view, Tarjan steps (node ids 1..n) no longer match the
-    // displayed graph (node ids 1..sccCnt). Stop any ongoing playback to avoid
-    // applying mismatched steps to the wrong view.
+    // 一旦切到 DAG，Tarjan 的 step（节点编号 1..n）就不再匹配当前显示的图（节点 1..sccCnt）。
+    // 因此必须停止正在播放的 step，避免把“错的步骤”应用到“错的视图”。
+    // （否则会出现错误高亮甚至越界）。
     mPlayTimer.stop();
     mPlaying = false;
     mSteps.clear();
     mStepIndex = 0;
+    mAlgoMode = AlgoMode::None;
+    mTopoRes = TopoResult();
+    mAlgoMode = AlgoMode::None;
+    mTopoRes = TopoResult();
     if (playBtn) { playBtn->setEnabled(false); playBtn->setText("播放"); }
     if (nextBtn) nextBtn->setEnabled(false);
     if (resetAlgoBtn) resetAlgoBtn->setEnabled(false);
 
-    // 1) Snapshot current original node positions.
-    // We intentionally use the *current* layout (after user dragging / force layout) so that
-    // SCC centroids become an intuitive starting placement for the condensed DAG.
+    // 1) 抓取当前原图节点坐标快照。
+    // 这里刻意使用“当前布局”（包含用户拖拽/力导布局结果），
+    // 这样每个 SCC 的质心会成为缩点 DAG 的自然初始位置。
     mPosOriginalSnapshot = view->snapshotPositions(mGraph.n);
 
-    // 2) Build the condensed graph (SCC graph / DAG).
+    // 2) 构建缩点图（SCC 图 / DAG）。
     Condense cond;
     CondenseResult cRes = cond.run(mGraph, mSccRes.sccId, mSccRes.sccCnt);
     mDag = cRes.dag;
 
-    // 3) Compute centroid position for each SCC as the initial DAG node position.
+    // 3) 计算每个 SCC 的质心作为 DAG 节点初始位置。
     const int C = mSccRes.sccCnt;
     QVector<QPointF> dagPos(C + 1);
     QVector<int> cnt(C + 1, 0);
@@ -360,19 +420,20 @@ void MainWindow::onShowDAG()
         if (cnt[cid] > 0) dagPos[cid] = dagPos[cid] / cnt[cid];
     }
 
-    // 4) Labels & colors.
+    // 4) 准备标签与颜色组。
     QStringList labels(C + 1);
     QVector<int> colorId(C + 1, 0);
     for (int cid = 1; cid <= C; ++cid) {
         labels[cid] = QString("S%1").arg(cid);
-        colorId[cid] = cid; // each SCC gets a stable, deterministic palette color
+        colorId[cid] = cid; // 每个 SCC 使用稳定的确定性调色板颜色
     }
 
-    // 5) Switch view.
+    // 5) 切换视图显示 DAG。
     view->showGraphEx(mDag, dagPos, labels, colorId);
     mShowingDag = true;
     if (showDagBtn) showDagBtn->setEnabled(false);
     if (showOriBtn) showOriBtn->setEnabled(true);
+    if (runTopoBtn) runTopoBtn->setEnabled(true);
 
     if (logEdit) {
         logEdit->append("----");
@@ -385,11 +446,22 @@ void MainWindow::onShowDAG()
 
 void MainWindow::onShowOriginal()
 {
-    // Restore original graph view.
+    // 视图切换会使当前播放序列失效，应当停止播放并清理状态。
+    mPlayTimer.stop();
+    mPlaying = false;
+    mSteps.clear();
+    mStepIndex = 0;
+    mAlgoMode = AlgoMode::None;
+    mTopoRes = TopoResult();
+    mAlgoMode = AlgoMode::None;
+    if (playBtn) { playBtn->setEnabled(false); playBtn->setText("播放"); }
+    if (nextBtn) nextBtn->setEnabled(false);
+    if (resetAlgoBtn) resetAlgoBtn->setEnabled(false);
+    // 恢复到原图视图。
     QVector<QPointF> pos = mPosOriginalSnapshot;
     if (pos.isEmpty()) pos = mPos; // fallback to the initial circle placement
 
-    // If we have SCC, keep SCC coloring on the original graph for continuity.
+    // 如果已有 SCC 结果，则在原图上保留 SCC 着色以保证视觉连贯性。
     QVector<int> colorId;
     if (mHasScc && (int)mSccRes.sccId.size() >= mGraph.n + 1) {
         colorId = QVector<int>(mGraph.n + 1, 0);
@@ -400,6 +472,7 @@ void MainWindow::onShowOriginal()
     mShowingDag = false;
     if (showDagBtn) showDagBtn->setEnabled(mHasScc);
     if (showOriBtn) showOriBtn->setEnabled(false);
+    if (runTopoBtn) runTopoBtn->setEnabled(false);
     statusBar()->showMessage(tr("Back to original graph"), 1500);
 }
 
@@ -424,12 +497,28 @@ void MainWindow::onNextStep()
 
     if (logEdit && !st.note.isEmpty()) logEdit->append(st.note);
 
-    // End condition.
+    // 结束条件。
     if (mStepIndex >= mSteps.size()) {
         mPlaying = false;
         mPlayTimer.stop();
         playBtn->setText("播放");
-        statusBar()->showMessage("SCC steps finished", 2000);
+
+        if (mAlgoMode == AlgoMode::TopoKahn) {
+            // 汇总输出最终拓扑序。
+            if (logEdit) {
+                logEdit->append("----");
+                if (mTopoRes.ok) {
+                    QStringList seq;
+                    for (int x : mTopoRes.order) seq << QString::number(x);
+                    logEdit->append(QString("拓扑序：%1").arg(seq.join(" ")));
+                } else {
+                    logEdit->append("拓扑失败：图中存在环（输出序列长度 < n）。");
+                }
+            }
+            statusBar()->showMessage("拓扑步骤播放完成", 2000);
+        } else {
+            statusBar()->showMessage("SCC 步骤播放完成", 2000);
+        }
     }
 }
 
@@ -441,13 +530,15 @@ void MainWindow::onPlayTick()
 
 void MainWindow::onResetAlgo()
 {
-    // Stop playback and clear transient highlight, but keep the current graph.
+    // 停止播放并清理瞬态高亮，但保留当前图数据。
     mPlayTimer.stop();
     mPlaying = false;
     if (playBtn) playBtn->setText("播放");
 
     mSteps.clear();
     mStepIndex = 0;
+    mAlgoMode = AlgoMode::None;
+    mTopoRes = TopoResult();
 
     if (logEdit) logEdit->clear();
     if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 0, QString()});

@@ -1,6 +1,6 @@
 #pragma once
 
-// Qt includes（必须有这些，否则 QGraphicsView / Q_OBJECT / QVector 等都找不到）
+// Qt 头文件（必须包含，否则 QGraphicsView / Q_OBJECT / QVector 等类型无法识别）
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsEllipseItem>
@@ -33,19 +33,19 @@ public:
     void showGraph(const Graph& g, const QVector<QPointF>& pos); // pos[1..n]
 
     /**
-     * @brief showGraphEx Rebuilds the scene from a graph + positions with optional labels/colors.
+     * @brief showGraphEx 根据图结构与坐标重建场景，可选传入标签/颜色分组。
      *
-     * Industrial rationale:
-     *  - The visual layer (QGraphicsScene) is treated as a pure projection of a graph state.
-     *    Rebuilding the scene makes mode switches (Original graph <-> Condensed DAG) deterministic.
-     *  - Optional labels/colors allow higher-level controllers (MainWindow) to keep GraphView
-     *    generic and reusable across algorithm phases (SCC/Condense/Topo).
+     * 工程化理由：
+     *  - 将可视化层（QGraphicsScene）视为“图状态”的纯投影。
+     *    通过重建场景，使模式切换（原图 <-> 缩点 DAG）具有确定性。
+     *  - 可选 labels/colors 让上层控制器（MainWindow）能保持 GraphView
+     *    通用且可复用，适配不同算法阶段（SCC/缩点/Topo）。
      *
-     * @param g         Graph to display. Node IDs must be 1..g.n.
-     * @param pos       Node positions, indexed by node ID. pos[0] is ignored.
-     * @param labels    Optional node labels (labels[1..n]). If empty, uses numeric labels.
-     * @param colorId   Optional persistent color group id per node (colorId[1..n]).
-     *                 When provided, nodes will be filled with the SCC palette of that id.
+     * @param g         要显示的图（节点编号需为 1..g.n）。
+     * @param pos       节点坐标（按节点编号索引），pos[0] 忽略。
+     * @param labels    可选节点标签（labels[1..n]）。为空时使用数字标签。
+     * @param colorId   可选的“持久颜色分组 id”（colorId[1..n]）。
+     *                 提供后将按该 id 使用 SCC 调色板进行填充。
      */
     void showGraphEx(const Graph& g,
                      const QVector<QPointF>& pos,
@@ -53,10 +53,10 @@ public:
                      const QVector<int>& colorId);
 
     /**
-     * @brief snapshotPositions Capture current node positions for N nodes.
+     * @brief snapshotPositions 抓取当前布局下 N 个节点的坐标。
      *
-     * Used by step-5 (switch to DAG): we compute SCC centroids from the *current* layout,
-     * so the condensed graph appears at a meaningful starting position.
+     * 用于第 5 步（切换到 DAG）：从“当前布局”计算每个 SCC 的质心，
+     * 使缩点后的图从更自然的位置开始显示。
      */
     QVector<QPointF> snapshotPositions(int n) const;
     void resetStyle();
@@ -86,7 +86,7 @@ private:
     QTimer mForceTimer;
     bool mForceEnabled = true;
 
-    // Force 参数（默认值先用这套，之后你可以做成 UI 可调）
+    // Force 参数（默认值先用这套，之后你可以做成 界面 可调）
     // 如果你觉得“抖/乱飞”：减小 mDt 或减小 mRepulsion；如果“挤在一起”：增大 mRepulsion 或 mCollisionK。
     double mDt = 0.08;
     double mDamping = 0.85;       // 阻尼：越小越快停
@@ -97,7 +97,7 @@ private:
 
     QRectF mLayoutBounds;
 
-    // --- Force cooling / stability ---
+    // --- 力导布局的冷却/稳定参数 ---
     double mAlpha = 1.0;
     double mAlphaDecay = 0.03;   // 越大越快停
     double mAlphaMin = 0.01;     // 小于它就停表
@@ -122,7 +122,7 @@ private:
     void updateArena(int n);
     void clampNodeToArena(NodeItem* n);
 
-    // --- Step playback visuals ---
+    // --- Step 回放相关的可视化状态 ---
     int mActiveNode = -1;
     QPair<int,int> mActiveEdge = {-1, -1};
     int mTopoOrderIndex = 0;

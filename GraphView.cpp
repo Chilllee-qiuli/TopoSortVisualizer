@@ -9,43 +9,83 @@
 
 namespace {
 /**
- * Visualization state is stored on each QGraphicsItem using setData()/data().
+ * 可视化状态通过 setData()/data() 存储在每个 QGraphicsItem 上。
  *
- * Why:
- *  - Avoids intrusive changes to NodeItem/EdgeItem class definitions.
- *  - Keeps algorithms UI-agnostic: algorithms only emit Steps.
- *  - Allows deterministic redraw by calling resetStyle() at any time.
+ * 原因：
+ *  - 避免对 NodeItem/EdgeItem 的类定义做侵入式修改。
+ *  - 保持算法与界面解耦：算法层只产出 Step 序列。
+ *  - 允许随时调用 resetStyle() 进行确定性重绘。
  */
-constexpr int kRoleSccId   = 0x100;   // int: assigned SCC id, 0 = unassigned
-constexpr int kRoleInStack = 0x101;   // bool: Tarjan stack membership
-constexpr int kRoleActive  = 0x102;   // bool: transient highlight for the current step
+constexpr int kRoleSccId     = 0x100;   // int：所属 SCC id，0 表示未分配
+constexpr int kRoleInStack   = 0x101;   // bool：Tarjan 栈成员标记（SCC 阶段）
+constexpr int kRoleActive    = 0x102;   // bool：当前 Step 的瞬时高亮
+
+// --- 拓扑排序（Kahn）相关的持久化 界面 状态 ---
+// 这些状态存到 item 的 data 里，而不是写进算法代码里，从而让 GraphView 仍然是可复用的
+// 渲染组件（工程上常见的“关注点分离”）。
+constexpr int kRoleTopoQueued = 0x110;  // bool：当前是否在 Kahn 队列中
+constexpr int kRoleTopoDone   = 0x111;  // bool：是否已出队/输出
+constexpr int kRoleTopoIndeg  = 0x112;  // int：当前入度值（用于刷新标签）
+
+// --- 边的瞬时高亮（仅当前 Step） ---
+constexpr int kRoleEdgeActive = 0x200;  // bool：当前 Step 高亮该边
+constexpr int kRoleEdgeU      = 0x201;  // int：起点节点 id（缓存到 EdgeItem）
+constexpr int kRoleEdgeV      = 0x202;  // int：终点节点 id（缓存到 EdgeItem）
 
 static QColor sccColor(int sccId) {
-    // Deterministic vivid palette via HSV. Stable across repaint/relayout.
+    // 使用 HSV 生成确定性的鲜艳调色板；重绘/重新布局时颜色保持稳定。
     const int hue = (sccId * 47) % 360;
     return QColor::fromHsv(hue, 160, 255);
+}
+
+static QColor blendColor(const QColor& base, const QColor& overlay, double t)
+{
+    // 在 RGB 空间做线性插值，用于 界面 叠色足够稳定。
+    // t ∈ [0,1]：0 表示 基色，1 表示 叠加色。
+    auto lerp = [t](int a, int b) {
+        return static_cast<int>(a + (b - a) * t);
+    };
+    return QColor(lerp(base.red(),   overlay.red()),
+                  lerp(base.green(), overlay.green()),
+                  lerp(base.blue(),  overlay.blue()));
 }
 
 static void styleNode(NodeItem* node) {
     if (!node) return;
 
-    const int  sccId   = node->data(kRoleSccId).toInt();
-    const bool inStack = node->data(kRoleInStack).toBool();
-    const bool active  = node->data(kRoleActive).toBool();
+    const int  sccId    = node->data(kRoleSccId).toInt();
+    const bool inStack  = node->data(kRoleInStack).toBool();
+    const bool active   = node->data(kRoleActive).toBool();
 
-    // Outline priority: active (red) > inStack (orange) > default (black)
+    // 拓扑排序状态（仅在 DAG 模式/Topo 回放阶段使用）。
+    const bool queued   = node->data(kRoleTopoQueued).toBool();
+    const bool done     = node->data(kRoleTopoDone).toBool();
+
+    // ---------- 填充色（持久状态） ----------
+    QColor baseFill = (sccId > 0) ? sccColor(sccId) : QColor(Qt::white);
+
+    // Topo 回放时做轻微叠色，但保留 SCC 颜色的可辨识度。
+    // done（已输出）需要与 queued（已入队/就绪）有明显区分。
+    if (done)  baseFill = blendColor(baseFill, QColor(120, 200, 120), 0.35);
+    if (queued) baseFill = blendColor(baseFill, QColor(100, 170, 255), 0.25);
+
+    node->setBrush(QBrush(baseFill));
+
+    // ---------- 描边（瞬时优先级） ----------
+    // 优先级：active(红) > inStack(橙) > done(绿) > queued(蓝) > 默认(黑)
     QPen pen(Qt::black, 2);
     if (active) {
         pen = QPen(QColor(220, 40, 40), 4);
     } else if (inStack) {
         pen = QPen(QColor(255, 140, 0), 3);
+    } else if (done) {
+        pen = QPen(QColor(20, 140, 60), 3);
+    } else if (queued) {
+        pen = QPen(QColor(60, 120, 220), 3);
     }
     node->setPen(pen);
-
-    // Fill: SCC color is persistent once assigned; otherwise keep white.
-    if (sccId > 0) node->setBrush(QBrush(sccColor(sccId)));
-    else node->setBrush(QBrush(Qt::white));
 }
+
 } // namespace
 
 GraphView::GraphView(QWidget* parent)
@@ -54,7 +94,7 @@ GraphView::GraphView(QWidget* parent)
     mScene = new QGraphicsScene(this);
     setScene(mScene);
     connect(&mForceTimer, &QTimer::timeout, this, &GraphView::onForceTick);
-    mForceTimer.setInterval(16); // ~60FPS
+    mForceTimer.setInterval(16); // 约 60FPS
     if (mForceEnabled) mForceTimer.start();
     setRenderHint(QPainter::Antialiasing, true);
     // Qt 有时候窗口 resize 或滚轮缩放会让视图锚点变化，导致看起来缩得很奇怪，这两行能让缩放/resize 行为更稳定。
@@ -65,7 +105,7 @@ GraphView::GraphView(QWidget* parent)
 
 void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 {
-    // Keep the original API for existing callers.
+    // 保留旧接口，兼容现有调用方。
     showGraphEx(g, pos, QStringList(), QVector<int>());
 
 }
@@ -75,9 +115,9 @@ void GraphView::showGraphEx(const Graph& g,
                             const QStringList& labels,
                             const QVector<int>& colorId)
 {
-    // Scene rebuild is intentional:
-    //  - It avoids incremental "diff" logic across modes (Original vs DAG).
-    //  - It guarantees a deterministic state after each phase transition.
+    // 这里刻意选择“重建 场景”：
+    //  - 避免在模式切换（原图 vs DAG）时做复杂的增量 diff。
+    //  - 保证每次阶段切换后的状态是确定且可复现的。
     mScene->clear();
     nodeItem.clear();
     edgeItem.clear();
@@ -88,7 +128,7 @@ void GraphView::showGraphEx(const Graph& g,
     const qreal R = 30.0;
     mNodeRadius = R;
 
-    // 1) Nodes first (edges need pointers to NodeItem).
+    // 1) 先创建节点（边需要拿到 NodeItem 指针）。
     for (int i = 1; i <= g.n; i++) {
         if (i <= 0 || i >= pos.size()) continue;
 
@@ -96,13 +136,19 @@ void GraphView::showGraphEx(const Graph& g,
         node->setPen(QPen(Qt::black, 2));
         node->setPos(pos[i]);
 
-        // Initialize per-node visualization state.
+        // 初始化每个节点的可视化状态（role 数据）。
         const int cid = (i < colorId.size()) ? colorId[i] : 0;
         node->setData(kRoleSccId, cid);
         node->setData(kRoleInStack, false);
         node->setData(kRoleActive, false);
 
-        // Label follows the node (child item).
+        // Topo 相关 界面 状态始终初始化（即使本阶段暂时不用），
+        // 这样后续算法切换不会依赖“之前显示过什么”。
+        node->setData(kRoleTopoQueued, false);
+        node->setData(kRoleTopoDone, false);
+        node->setData(kRoleTopoIndeg, 0);
+
+        // 标签作为子 item，跟随节点移动。
         const QString text = (i < labels.size() && !labels[i].isEmpty())
                                  ? labels[i]
                                  : QString::number(i);
@@ -113,22 +159,28 @@ void GraphView::showGraphEx(const Graph& g,
         mScene->addItem(node);
         nodeItem[i] = node;
 
-        // Reheat physics when user interacts.
+        // 用户交互后重新“加热”力导布局，让布局继续调整。
         connect(node, &NodeItem::dragStarted, this, [this]() { heatUp(1.0); });
         connect(node, &NodeItem::dragEnded,   this, [this]() { heatUp(0.6); });
         connect(node, &NodeItem::pinChanged,  this, [this](bool) { heatUp(0.8); });
     }
 
-    // 2) Edges.
+    // 2) 再创建边。
     for (auto [u, v] : g.edges) {
         if (!nodeItem.contains(u) || !nodeItem.contains(v)) continue;
         auto* e = new EdgeItem(nodeItem[u], nodeItem[v], R);
         mScene->addItem(e);
         edgeItem[{u, v}] = e;
-        mEdgeWeight[{u, v}] = 1.0; // Existing edges start at full strength.
+
+        // 在 EdgeItem 上缓存 (u,v)，以便样式/高亮无需额外外部映射。
+        e->setData(kRoleEdgeU, u);
+        e->setData(kRoleEdgeV, v);
+        e->setData(kRoleEdgeActive, false);
+
+        mEdgeWeight[{u, v}] = 1.0; // 旧边初始强度=1（完全生效）。
     }
 
-    // 3) Re-render all items (e.g. SCC palette fills).
+    // 3) 重新渲染所有 item（例如 SCC 调色板填充色）。
     resetStyle();
 
     // 4) View framing & force layout bootstrap.
@@ -146,7 +198,7 @@ void GraphView::showGraphEx(const Graph& g,
     mLayoutBounds = mScene->itemsBoundingRect().adjusted(-200, -200, 200, 200);
     mScene->setSceneRect(mLayoutBounds);
 
-    // Reset simulation state for a clean "settle" after rebuild.
+    // 重置仿真参数，让重建后的图能从干净状态“稳定下来”。
     mAlpha = 1.0;
     for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
         it.value()->vel = QPointF(0, 0);
@@ -158,7 +210,7 @@ QVector<QPointF> GraphView::snapshotPositions(int n) const
 {
     QVector<QPointF> pos(n + 1);
     for (int i = 1; i <= n; ++i) {
-        // QMap::operator[] is non-const; use value() for a const-safe lookup.
+        // QMap::operator[] 不是 const 安全的；在 const 上下文用 value() 查询。
         NodeItem* node = nodeItem.value(i, nullptr);
         if (node) pos[i] = node->pos();
     }
@@ -178,43 +230,127 @@ void GraphView::resizeEvent(QResizeEvent* event)
 
 void GraphView::resetStyle()
 {
-    // Re-render all nodes based on visualization state stored in item data.
+    // 基于 item data 中存储的状态，确定性地重绘所有节点/边。
+    // 每次应用 Step 后都会调用该函数，从而保证回放过程是确定性的。
+
     for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
         styleNode(it.value());
     }
+
+    // 边的样式策略：
+    //  - 活跃边：红色加粗
+    //  - 从“已输出节点”出发的边：淡化（帮助观察 Kahn 的 frontier）
+    for (auto it = edgeItem.begin(); it != edgeItem.end(); ++it) {
+        const int u = it.key().first;
+        EdgeItem* e = it.value();
+        if (!e) continue;
+
+        const bool active = e->data(kRoleEdgeActive).toBool();
+        const bool fromDone = nodeItem.contains(u) ? nodeItem[u]->data(kRoleTopoDone).toBool() : false;
+
+        QPen pen(Qt::black, 2);
+        if (active) {
+            pen = QPen(QColor(220, 40, 40), 4);
+        } else if (fromDone) {
+            pen = QPen(QColor(160, 160, 160), 2);
+        }
+        e->setPen(pen);
+    }
 }
+
 
 void GraphView::applyStep(const Step& step)
 {
-    // Apply a single algorithm step to the scene.
+    // 将单个算法 Step 应用到场景（只改状态，不直接画）。
     //
-    // Design:
-    //  - Persistent state (SCC id / stack membership) is stored per-node using item data roles.
-    //  - Step application only mutates these roles, then calls resetStyle() to re-render.
-    //  - This keeps algorithm code decoupled from Qt UI code and makes playback deterministic.
+    // 设计要点（工程化理由）：
+    //  - 算法层保持纯净且与 界面 解耦：只负责产出 Steps。
+    //  - GraphView 将可视化状态存放在 QGraphicsItem 的 setData()/data() 中。
+    //  - 每个 Step 只修改少量 role；随后 resetStyle() 做确定性重渲染。
 
-    // Clear previous transient highlight.
+    // 1) 清除上一帧的瞬时高亮（节点 + 边）。
     for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
         it.value()->setData(kRoleActive, false);
     }
+    for (auto it = edgeItem.begin(); it != edgeItem.end(); ++it) {
+        if (it.value()) it.value()->setData(kRoleEdgeActive, false);
+    }
 
-    // Special: Reset visualization state.
+    // 2) 特殊处理：重置可视化状态。
     if (step.type == StepType::ResetVisual) {
         const bool clearScc = (step.val != 0);
+
+        // 清理拓扑相关文本（入度/输出序号）。
+        for (auto it = mIndegText.begin(); it != mIndegText.end(); ++it) {
+            delete it.value();
+        }
+        mIndegText.clear();
+
+        for (auto it = mOrderText.begin(); it != mOrderText.end(); ++it) {
+            delete it.value();
+        }
+        mOrderText.clear();
+        mTopoOrderIndex = 0;
+
         for (auto it = nodeItem.begin(); it != nodeItem.end(); ++it) {
             NodeItem* node = it.value();
             if (!node) continue;
+
             node->setData(kRoleActive, false);
             node->setData(kRoleInStack, false);
+
+            // Topo 的持久化状态。
+            node->setData(kRoleTopoQueued, false);
+            node->setData(kRoleTopoDone, false);
+            node->setData(kRoleTopoIndeg, 0);
+
             if (clearScc) node->setData(kRoleSccId, 0);
         }
+
+        for (auto it = edgeItem.begin(); it != edgeItem.end(); ++it) {
+            if (it.value()) it.value()->setData(kRoleEdgeActive, false);
+        }
+
         resetStyle();
         return;
     }
 
     NodeItem* nodeU = nodeItem.contains(step.u) ? nodeItem[step.u] : nullptr;
+    NodeItem* nodeV = nodeItem.contains(step.v) ? nodeItem[step.v] : nullptr;
+    EdgeItem* edgeUV = edgeItem.contains({step.u, step.v}) ? edgeItem[{step.u, step.v}] : nullptr;
+
+    auto ensureIndegText = [this](int id, NodeItem* node, int indeg) {
+        if (!node) return;
+        QGraphicsSimpleTextItem* t = mIndegText.value(id, nullptr);
+        if (!t) {
+            t = new QGraphicsSimpleTextItem(QString::number(indeg), node);
+            t->setZValue(2);
+            mIndegText[id] = t;
+        } else {
+            t->setText(QString::number(indeg));
+        }
+        QRectF br = t->boundingRect();
+        // 将入度文字放在节点下方并居中。
+        t->setPos(-br.width() / 2.0, mNodeRadius * 0.55);
+    };
+
+    auto ensureOrderText = [this](int id, NodeItem* node, int orderIdx) {
+        if (!node) return;
+        QGraphicsSimpleTextItem* t = mOrderText.value(id, nullptr);
+        if (!t) {
+            t = new QGraphicsSimpleTextItem(QString::number(orderIdx), node);
+            t->setZValue(2);
+            mOrderText[id] = t;
+        } else {
+            t->setText(QString::number(orderIdx));
+        }
+        QRectF br = t->boundingRect();
+        // 将输出序号放在节点上方并居中。
+        t->setPos(-br.width() / 2.0, -mNodeRadius - br.height() * 0.2);
+    };
 
     switch (step.type) {
+    // --- SCC（Tarjan）阶段 ---
     case StepType::Visit:
         if (nodeU) nodeU->setData(kRoleActive, true);
         break;
@@ -237,13 +373,54 @@ void GraphView::applyStep(const Step& step)
             nodeU->setData(kRoleActive, true);
         }
         break;
+
+    // --- 拓扑排序（Kahn）阶段 ---
+    case StepType::TopoInitIndeg:
+        if (nodeU) {
+            nodeU->setData(kRoleTopoIndeg, step.val);
+            ensureIndegText(step.u, nodeU, step.val);
+            nodeU->setData(kRoleActive, true);
+        }
+        break;
+
+    case StepType::TopoEnqueue:
+        if (nodeU) {
+            nodeU->setData(kRoleTopoQueued, true);
+            nodeU->setData(kRoleActive, true);
+        }
+        break;
+
+    case StepType::TopoDequeue:
+        if (nodeU) {
+            nodeU->setData(kRoleTopoQueued, false);
+            nodeU->setData(kRoleTopoDone, true);
+            nodeU->setData(kRoleActive, true);
+
+            // 给节点分配输出序号（从 1 开始）。
+            mTopoOrderIndex++;
+            ensureOrderText(step.u, nodeU, mTopoOrderIndex);
+        }
+        break;
+
+    case StepType::TopoIndegDec:
+        // 高亮当前处理的边 (u -> v)，并更新 v 的入度显示。
+        if (edgeUV) edgeUV->setData(kRoleEdgeActive, true);
+        if (nodeV) {
+            nodeV->setData(kRoleTopoIndeg, step.val);
+            ensureIndegText(step.v, nodeV, step.val);
+            nodeV->setData(kRoleActive, true);
+        }
+        if (nodeU) nodeU->setData(kRoleActive, true);
+        break;
+
     default:
-        // Not handled in this milestone. Keep as no-op for forward compatibility.
+        // 本里程碑暂不处理；保留为空操作，便于后续扩展并保持向前兼容。
         break;
     }
 
     resetStyle();
 }
+
 void GraphView::startForceLayout() {
     if (!mForceTimer.isActive()) mForceTimer.start();
 }
@@ -261,7 +438,7 @@ void GraphView::onForceTick()
 {
     if (!mScene || nodeItem.isEmpty()) return;
 
-    // cooling
+    // 冷却系数
     mAlpha *= (1.0 - mAlphaDecay);
     if (mAlpha < mAlphaMin) {
         stopForceLayout();
@@ -296,7 +473,7 @@ void GraphView::onForceTick()
             double mag = mRepulsion / dist2;       // 1/r^2
             QPointF f = dir * mag;
 
-            // collision: dist < 2R 时额外弹开
+            // 碰撞：dist < 2R 时额外弹开
             double minDist = 2.0 * mNodeRadius + 6.0;
             if (dist < minDist) {
                 double push = (minDist - dist) * mCollisionK;
@@ -387,6 +564,10 @@ bool GraphView::addEdge(int u, int v)
     auto* e = new EdgeItem(nodeItem[u], nodeItem[v], mNodeRadius);
     mScene->addItem(e);
     edgeItem[{u, v}] = e;
+
+    e->setData(kRoleEdgeU, u);
+    e->setData(kRoleEdgeV, v);
+    e->setData(kRoleEdgeActive, false);
 
     mEdgeWeight[{u, v}] = 0.0;  // 新边从 0 开始慢慢增强
     heatUp(1.0);                // reheat

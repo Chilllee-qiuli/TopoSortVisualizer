@@ -1,4 +1,4 @@
-// algo/Condense.h
+// 算法模块：缩点（接口）
 #pragma once
 #include "Graph.h"
 #include "Steps.h"

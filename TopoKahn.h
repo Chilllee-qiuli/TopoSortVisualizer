@@ -1,4 +1,4 @@
-// algo/TopoKahn.h
+// 算法模块：拓扑排序（Kahn）
 #pragma once
 #include "Graph.h"
 #include "Steps.h"

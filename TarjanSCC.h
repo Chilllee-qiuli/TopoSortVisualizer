@@ -1,4 +1,4 @@
-// algo/TarjanSCC.h
+// 算法模块：强连通分量（Tarjan）
 #pragma once
 #include "Graph.h"
 #include "Steps.h"

@@ -1,9 +1,9 @@
-// algo/Steps.h
+// 可视化步骤定义
 #pragma once
 #include <QString>
 
 enum class StepType {
-    ResetVisual, // Clear visualization state (val=0 transient, val=1 also clear SCC)
+    ResetVisual, // 清理可视化状态（val=0 仅清理“瞬态高亮”，val=1 额外清空 SCC 着色）
     Visit, PushStack, PopStack,
     AssignSCC,
     BuildCondensedEdge,

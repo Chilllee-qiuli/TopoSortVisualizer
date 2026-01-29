@@ -1,4 +1,4 @@
-// algo/TarjanSCC.cpp
+// 算法模块：强连通分量（Tarjan）
 #include "TarjanSCC.h"
 #include <algorithm>
 
@@ -30,11 +30,11 @@ SCCResult TarjanSCC::run(const Graph& g){
 
 void TarjanSCC::dfs(int u){
     dfn[u] = low[u] = ++timer;
-    steps.push_back({StepType::Visit, u, -1, -1, 0, QString("Visit %1").arg(u)});
+    steps.push_back({StepType::Visit, u, -1, -1, 0, QString("访问 %1").arg(u)});
 
     st.push_back(u);
     inStack[u] = 1;
-    steps.push_back({StepType::PushStack, u, -1, -1, 0, QString("Push %1").arg(u)});
+    steps.push_back({StepType::PushStack, u, -1, -1, 0, QString("入栈 %1").arg(u)});
 
     for(int v: G->adj[u]){
         if(!dfn[v]){
@@ -50,12 +50,12 @@ void TarjanSCC::dfs(int u){
         while(true){
             int x = st.back(); st.pop_back();
             inStack[x] = 0;
-            steps.push_back({StepType::PopStack, x, -1, -1, 0, QString("Pop %1").arg(x)});
+            steps.push_back({StepType::PopStack, x, -1, -1, 0, QString("弹出 %1").arg(x)});
 
             sccId[x] = sccCnt;
             sccSize[sccCnt]++;
             steps.push_back({StepType::AssignSCC, x, -1, sccCnt, 0,
-                             QString("Assign node %1 to SCC %2").arg(x).arg(sccCnt)});
+                             QString("添加节点 %1 到 SCC %2").arg(x).arg(sccCnt)});
 
             if(x == u) break;
         }

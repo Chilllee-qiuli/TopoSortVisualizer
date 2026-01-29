@@ -14,6 +14,7 @@
 #include "Steps.h"
 #include "TarjanSCC.h"
 #include "Condense.h"
+#include "TopoKahn.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -36,13 +37,13 @@ private:
     GraphView* view = nullptr;
 
 
-// --- Docks / panels ---
+// --- Dock 面板 ---
 QDockWidget* mGraphDock = nullptr;
 QDockWidget* mAlgoDock  = nullptr;
 QAction* mGraphDockAction = nullptr;
 QAction* mAlgoDockAction  = nullptr;
 
-// Edge statistics UI
+// 边统计相关的 界面
 QLabel* edgeCountLabel = nullptr;
 
 void setupDocks();
@@ -54,10 +55,14 @@ void updateEdgeCountUI();
     void onAddEdgesFromText();
     void onEdgeRequested(int u, int v);
 
-    // Algorithm controls (Step 4: Tarjan SCC visualization)
+    // 算法控制（第 4 步：Tarjan SCC 可视化）
     void onRunSCC();
     void onShowDAG();
     void onShowOriginal();
+
+    // 第 6 步：在缩点 DAG 上进行拓扑排序回放（Kahn）。
+    void onRunTopo();
+
     void onPlayPause();
     void onNextStep();
     void onResetAlgo();
@@ -72,24 +77,31 @@ private:
     QSpinBox* vSpin = nullptr;
     QTextEdit* edgesEdit = nullptr;
 
-    // --- Algo playback state ---
+    // --- 算法回放状态 ---
     QVector<Step> mSteps;
     int mStepIndex = 0;
     bool mPlaying = false;
     QTimer mPlayTimer;
 
-    // --- Algo UI widgets ---
+    enum class AlgoMode { None, TarjanSCC, TopoKahn };
+    AlgoMode mAlgoMode = AlgoMode::None;
+
+    // 最近一次拓扑排序的结果缓存（用于最终输出序列）。
+    TopoResult mTopoRes;
+
+    // --- 算法相关 界面 控件 ---
     QPushButton* runSccBtn = nullptr;
+    QPushButton* runTopoBtn = nullptr;
     QPushButton* playBtn = nullptr;
     QPushButton* nextBtn = nullptr;
     QPushButton* resetAlgoBtn = nullptr;
     QTextEdit* logEdit = nullptr;
 
-    // Step-5 UI (switch to condensed DAG view)
+    // 第 5 步 界面（切换到缩点 DAG 视图）
     QPushButton* showDagBtn = nullptr;
     QPushButton* showOriBtn = nullptr;
 
-    // --- Cached algorithm results (used across phases) ---
+    // --- 缓存的算法结果（跨阶段复用） ---
     bool mHasScc = false;
     bool mShowingDag = false;
     SCCResult mSccRes;         // SCC mapping for the current original graph

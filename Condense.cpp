@@ -1,4 +1,4 @@
-// algo/Condense.cpp
+// 算法模块：缩点
 #include "Condense.h"
 #include <unordered_set>
 
@@ -16,7 +16,7 @@ CondenseResult Condense::run(const Graph& g, const std::vector<int>& sccId, int 
         if(seen.insert(k).second){
             dag.addEdge(su, sv);
             steps.push_back({StepType::BuildCondensedEdge, su, sv, -1, 0,
-                             QString("Condense edge: SCC%1 -> SCC%2").arg(su).arg(sv)});
+                             QString("缩点边：SCC%1 -> SCC%2").arg(su).arg(sv)});
         }
     }
 
