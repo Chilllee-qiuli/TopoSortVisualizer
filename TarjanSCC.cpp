@@ -1,3 +1,20 @@
+/* ANNOTATED_FOR_STUDY
+@file TarjanSCC.cpp
+@brief Tarjan SCC 的实现 + 关键动作的 Step 记录。
+
+建议：
+1) 先把 Tarjan 定义好：dfn / low / stack / inStack。
+2) dfs(u) 的流程：
+   - 首次访问：dfn=low=++timer，记录 Visit
+   - 入栈：push stack，inStack=1，记录 PushStack
+   - 遍历 u 的出边：
+     * 遇到未访问点：递归，然后 low[u] = min(low[u], low[v])
+     * 遇到栈内点：low[u] = min(low[u], dfn[v])
+   - 如果 low[u]==dfn[u]，说明 u 是 SCC 的根：一直弹栈直到 u
+     每弹出一个点：记录 PopStack，然后 AssignSCC(x, sccCnt)
+3) 这些 steps 在 MainWindow::onRunSCC() 中缓存，然后通过 QTimer 逐步喂给 GraphView::applyStep()。
+*/
+
 // 算法模块：强连通分量（Tarjan）
 #include "TarjanSCC.h"
 #include <algorithm>

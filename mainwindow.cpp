@@ -1,3 +1,13 @@
+/* ANNOTATED_FOR_STUDY
+mainWindow 的实现：构建 Dock 面板、响应按钮、驱动算法与可视化。
+
+QT一般规范：
+- connect(sender, signal, receiver, slot) ：把“事件”连起来（信号 -> 槽函数）
+- QTimer：定时器，timeout 信号到时触发；这里用来“自动播放 steps”
+- statusBar()->showMessage(...)：窗口底部状态栏提示
+- QString / QStringList：Qt 的字符串类型（很多 UI API 都用它）
+*/
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "TarjanSCC.h"
@@ -30,7 +40,7 @@ void MainWindow::setupPanelsMenu()
     mGraphDockAction = mGraphDock->toggleViewAction();
     mAlgoDockAction  = mAlgoDock->toggleViewAction();
 
-    // 一些可选的易用性快捷设置。
+    // 易用性快捷设置。
     mGraphDockAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_1));
     mAlgoDockAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
 
@@ -235,11 +245,12 @@ bool MainWindow::addEdgeImpl(int u, int v)
     return true;
 }
 
+// 建图
 void MainWindow::onCreateGraph()
 {
     int n = nSpin->value();
     mGraph = Graph(n);
-    mPos = makeCirclePos(n);
+    mPos = makeCirclePos(n); // 初始圆形坐标
 
     // 新建图：清空 SCC/DAG 缓存结果。
     mHasScc = false;
@@ -247,10 +258,13 @@ void MainWindow::onCreateGraph()
     mSccRes = SCCResult();
     mDag = Graph();
     mPosOriginalSnapshot.clear();
+
+    // 禁用控件，屏蔽交互
     if (showDagBtn) showDagBtn->setEnabled(false);
     if (showOriBtn) showOriBtn->setEnabled(false);
     if (runTopoBtn) runTopoBtn->setEnabled(false);
 
+    // 限制用户输入的有效范围
     uSpin->setRange(1, n);
     vSpin->setRange(1, n);
 

@@ -1,3 +1,22 @@
+/* ANNOTATED_FOR_STUDY
+@file GraphView.h
+@brief 可视化核心：QGraphicsView + QGraphicsScene 画图，并提供交互与“Step 回放”。
+
+为什么选 QGraphicsView?
+- 它适合做“节点/边”这种大量小图元（QGraphicsItem）的场景：每个节点是一个 item，边是另一个 item。
+- item 天生支持拖拽、选择、事件分发、Z 值(层级)、父子关系（文字跟着节点走）。
+
+可以把 GraphView 分成 3 件事：
+1) showGraphEx(): 把某一张图(原图 / DAG)投影到场景里（重建节点/边 item）
+2) 力导布局(ForceLayout): QTimer 每 16ms tick 一次，算力并更新坐标，让图“灵动”
+3) applyStep(): 接收算法产生的 Step，修改每个 item 的 data(role)，然后 resetStyle() 重绘样式
+
+NodeItem / EdgeItem 为什么写在 .h 里？
+- 课程项目规模不大，把它们作为 GraphView 的“内部小组件”放在一个文件里更好找。
+- NodeItem 继承 QObject 是为了能发 signals（moved/dragStarted/...）；
+  同时继承 QGraphicsEllipseItem 是为了能直接画圆。
+*/
+
 #pragma once
 
 // Qt 头文件（必须包含，否则 QGraphicsView / Q_OBJECT / QVector 等类型无法识别）
@@ -62,7 +81,7 @@ public:
     void resetStyle();
     void applyStep(const Step& step);
     bool addEdge(int u, int v);          // 动态加边（只改视图）
-    void setEdgeEditMode(bool on) { mEdgeEditMode = on; } // 可选：面板勾选后不需按Shift
+    void setEdgeEditMode(bool on) { mEdgeEditMode = on; } // 可选项：面板勾选后不需按Shift
 signals:
     void edgeRequested(int u, int v);
 public slots:
@@ -86,8 +105,8 @@ private:
     QTimer mForceTimer;
     bool mForceEnabled = true;
 
-    // Force 参数（默认值先用这套，之后你可以做成 界面 可调）
-    // 如果你觉得“抖/乱飞”：减小 mDt 或减小 mRepulsion；如果“挤在一起”：增大 mRepulsion 或 mCollisionK。
+    // Force 参数（默认值先用这套，之后可以做成 界面 可调）
+    // 如果抖/乱飞：减小 mDt 或减小 mRepulsion；如果挤在一起：增大 mRepulsion 或 mCollisionK。
     double mDt = 0.08;
     double mDamping = 0.85;       // 阻尼：越小越快停
     double mRepulsion = 120000.0;  // 点-点排斥强度

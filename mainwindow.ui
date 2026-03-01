@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- ANNOTATED_FOR_STUDY_UI
+  这个 .ui 是用 Qt Designer 保存的界面骨架：只有 QMainWindow + menubar + statusbar。
+  本项目把核心画布(GraphView)和两个 Dock 面板都在 mainwindow.cpp 里用代码创建：
+  - setCentralWidget(view)
+  - addDockWidget(...) / splitDockWidget(...)
+  这样做的好处：你不用在 Designer 里拖一堆控件，也能把算法流程写清楚。
+-->
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">

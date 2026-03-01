@@ -1,3 +1,13 @@
+/* ANNOTATED_FOR_STUDY
+@file TarjanSCC.h
+@brief Tarjan 强连通分量（SCC）算法模块。输出 SCC 映射 + 可视化步骤。
+
+这里写成一个算法库：
+- 输入：Graph（1..n）
+- 输出：每个点属于哪个 SCC（sccId），共有多少 SCC（sccCnt）
+- 同时输出 steps：把 DFS 的关键动作（Visit/Push/Pop/AssignSCC）记录下来，供界面回放。
+*/
+
 // 算法模块：强连通分量（Tarjan）
 #pragma once
 #include "Graph.h"

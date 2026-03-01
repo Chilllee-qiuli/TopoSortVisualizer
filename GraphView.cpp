@@ -1,3 +1,14 @@
+/* ANNOTATED_FOR_STUDY
+@file GraphView.cpp
+@brief GraphView 的实现：场景重建、样式重绘、Step 回放、力导布局、交互加边。
+
+
+- 从“数据如何流动”开始：
+  MainWindow 点击按钮 -> 运行算法生成 steps -> QTimer 一步步调用 view->applyStep(step)
+- applyStep() 只改状态，不直接画；最后统一 resetStyle()，这样回放确定、好 debug。
+- 力导布局在 onForceTick()：可以把它理解为“每帧都做一次物理模拟”。
+*/
+
 #include "GraphView.h"
 #include <QPen>
 #include <QBrush>
@@ -574,6 +585,8 @@ bool GraphView::addEdge(int u, int v)
     startForceLayout();         // 确保 timer 在跑
     return true;
 }
+
+// 在图内加边
 void GraphView::mousePressEvent(QMouseEvent* event)
 {
     bool wantAddEdge = mEdgeEditMode || (event->modifiers() & Qt::ShiftModifier);

@@ -1,3 +1,14 @@
+/* ANNOTATED_FOR_STUDY
+@file TopoKahn.cpp
+@brief Kahn 拓扑排序实现 + Step 记录。
+
+可视化对应关系：
+- TopoInitIndeg(i,val)：初始化并显示每个点的入度
+- TopoEnqueue(i)：入度为 0 的点入队（界面用蓝色标记 queued）
+- TopoDequeue(i)：出队并输出（界面用绿色 done，并显示输出序号 1..k）
+- TopoIndegDec(u,v,val)：处理边 u->v 时，v 的入度减 1（界面高亮这条边并刷新 v 下方的入度文字）
+*/
+
 // 算法模块：拓扑排序（Kahn）
 #include "TopoKahn.h"
 #include <queue>
