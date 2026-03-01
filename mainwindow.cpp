@@ -145,7 +145,19 @@ void MainWindow::setupDocks()
     runTopoBtn->setEnabled(false);
     aLay->addWidget(runTopoBtn);
 
-    playBtn = new QPushButton(tr("执行"), algoPanel);
+    // 展示所有拓扑序列（文本形式，可复制）。
+    topoInfoLabel = new QLabel(tr("拓扑序列：未生成"), algoPanel);
+    aLay->addWidget(topoInfoLabel);
+
+    aLay->addWidget(new QLabel(tr("所有拓扑序列（按“播放”逐条演示）:"), algoPanel));
+    topoAllEdit = new QTextEdit(algoPanel);
+    topoAllEdit->setReadOnly(true);
+    topoAllEdit->setMinimumHeight(120);
+    topoAllEdit->setPlaceholderText(tr("点击“开始拓扑排序”后，会在这里列出全部拓扑序列（数量过大时仅展示前若干条）。"));
+    aLay->addWidget(topoAllEdit);
+
+    // 播放：每次点击播放（在非播放状态）都会“加载并演示一条拓扑序列”。
+    playBtn = new QPushButton(tr("播放"), algoPanel);
     playBtn->setEnabled(false);
     aLay->addWidget(playBtn);
 
@@ -233,6 +245,14 @@ bool MainWindow::addEdgeImpl(int u, int v)
     mSccRes = SCCResult();
     mDag = Graph();
     mPosOriginalSnapshot.clear();
+
+    // 拓扑序列缓存失效。
+    mAllTopoOrders.clear();
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
+    mTopoOrdersReady = false;
+    if (topoInfoLabel) topoInfoLabel->setText(tr("拓扑序列：未生成"));
+    if (topoAllEdit) topoAllEdit->clear();
     if (showDagBtn) showDagBtn->setEnabled(false);
     if (showOriBtn) showOriBtn->setEnabled(false);
     if (runTopoBtn) runTopoBtn->setEnabled(false);
@@ -258,6 +278,14 @@ void MainWindow::onCreateGraph()
     mSccRes = SCCResult();
     mDag = Graph();
     mPosOriginalSnapshot.clear();
+
+    // 拓扑序列缓存失效。
+    mAllTopoOrders.clear();
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
+    mTopoOrdersReady = false;
+    if (topoInfoLabel) topoInfoLabel->setText(tr("拓扑序列：未生成"));
+    if (topoAllEdit) topoAllEdit->clear();
 
     // 禁用控件，屏蔽交互
     if (showDagBtn) showDagBtn->setEnabled(false);
@@ -320,6 +348,14 @@ void MainWindow::onRunSCC()
     mAlgoMode = AlgoMode::TarjanSCC;
     mTopoRes = TopoResult();
 
+    // SCC 变化后，DAG 以及所有拓扑序列都应重新计算。
+    mAllTopoOrders.clear();
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
+    mTopoOrdersReady = false;
+    if (topoInfoLabel) topoInfoLabel->setText(tr("拓扑序列：未生成"));
+    if (topoAllEdit) topoAllEdit->clear();
+
     // 缓存 SCC 映射：供第 5 步缩点建 DAG，以及第 6 步拓扑回放使用。
     mSccRes = res;
     mHasScc = true;
@@ -362,30 +398,59 @@ void MainWindow::onRunTopo()
     // 清理瞬态高亮（保留 DAG 节点的 SCC 调色板颜色）。
     if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 0, QString("为拓扑排序重置")});
 
+    // 先枚举全部拓扑序列。
     TopoKahn topo;
-    mTopoRes = topo.run(mDag);
+    TopoAllResult all = topo.enumerateAll(mDag);
+    mAllTopoOrders = all.orders;
+    mTopoOrdersReady = all.ok;
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
 
+    // 注意：此处不立即生成 steps；由“播放”按钮每次加载并演示一条序列。
     mSteps.clear();
-    mSteps.reserve((int)mTopoRes.steps.size());
-    for (const Step& s : mTopoRes.steps) mSteps.push_back(s);
     mStepIndex = 0;
     mAlgoMode = AlgoMode::TopoKahn;
+    mTopoRes = TopoResult();
 
     if (logEdit) {
         logEdit->clear();
-        logEdit->append(QString("Topo sort on DAG: n=%1, m=%2").arg(mDag.n).arg(mDag.edges.size()));
-        logEdit->append(QString("Result ok = %1").arg(mTopoRes.ok ? "true" : "false"));
+        logEdit->append(QString("Topo (All) on DAG: n=%1, m=%2").arg(mDag.n).arg(mDag.edges.size()));
+        logEdit->append(QString("All orders ok = %1").arg(all.ok ? "true" : "false"));
+        logEdit->append(QString("Total topo orders = %1").arg((int)mAllTopoOrders.size()));
         logEdit->append("----");
+        logEdit->append(tr("点击“播放”：每次生成并动态演示 1 条拓扑序列；播完后再点“播放”会演示下一条。"));
     }
 
-    playBtn->setEnabled(!mSteps.isEmpty());
-    nextBtn->setEnabled(!mSteps.isEmpty());
+    if (topoInfoLabel) {
+        topoInfoLabel->setText(QString("拓扑序列：共 %1 条，当前 0/%1（未播放）")
+                               .arg((int)mAllTopoOrders.size()));
+    }
+
+    // 默认仅展示前若干条，避免序列过多导致界面卡顿。
+    if (topoAllEdit) {
+        topoAllEdit->clear();
+        const int total = (int)mAllTopoOrders.size();
+        const int showK = std::min(total, 200);
+        for (int i = 0; i < showK; ++i) {
+            QStringList seq;
+            for (int x : mAllTopoOrders[i]) seq << QString::number(x);
+            topoAllEdit->append(QString("%1) %2").arg(i + 1).arg(seq.join(" ")));
+        }
+        if (total > showK) {
+            topoAllEdit->append(QString("...（共 %1 条，仅展示前 %2 条；其余可通过逐次播放/日志查看）")
+                                .arg(total).arg(showK));
+        }
+    }
+
+    // 允许播放（即使序列为空也给出提示）。
+    playBtn->setEnabled(!mAllTopoOrders.empty() && mTopoOrdersReady);
+    nextBtn->setEnabled(false);
     resetAlgoBtn->setEnabled(true);
     playBtn->setText("播放");
     mPlaying = false;
     mPlayTimer.stop();
 
-    statusBar()->showMessage(QString("Topo(Kahn) 产生了 %1 个步骤").arg(mSteps.size()), 2500);
+    statusBar()->showMessage(QString("已生成 %1 条拓扑序列（播放将逐条演示）").arg((int)mAllTopoOrders.size()), 2500);
 }
 
 void MainWindow::onShowDAG()
@@ -419,6 +484,14 @@ void MainWindow::onShowDAG()
     Condense cond;
     CondenseResult cRes = cond.run(mGraph, mSccRes.sccId, mSccRes.sccCnt);
     mDag = cRes.dag;
+
+    // DAG 变化：拓扑序列缓存失效。
+    mAllTopoOrders.clear();
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
+    mTopoOrdersReady = false;
+    if (topoInfoLabel) topoInfoLabel->setText(tr("拓扑序列：未生成"));
+    if (topoAllEdit) topoAllEdit->clear();
 
     // 3) 计算每个 SCC 的质心作为 DAG 节点初始位置。
     const int C = mSccRes.sccCnt;
@@ -492,6 +565,63 @@ void MainWindow::onShowOriginal()
 
 void MainWindow::onPlayPause()
 {
+    // Topo 模式：每次“开始播放”（非播放状态下）若当前没有可播放步骤，则先生成 1 条拓扑序列的 steps。
+    if (mAlgoMode == AlgoMode::TopoKahn && !mPlaying) {
+        const bool needNewSeq = mSteps.isEmpty() || (mStepIndex >= mSteps.size());
+        if (needNewSeq) {
+            if (!mTopoOrdersReady || mAllTopoOrders.empty()) {
+                statusBar()->showMessage(tr("当前没有可用的拓扑序列"), 2000);
+                return;
+            }
+
+            // 若已播放完，循环回到第一条（避免“点了没反应”）。
+            if (mTopoOrderCursor >= (int)mAllTopoOrders.size()) {
+                mTopoOrderCursor = 0;
+            }
+            mTopoOrderPlaying = mTopoOrderCursor;
+
+            // 每条序列开始前：清理上一次的 Topo 状态（保留 SCC 颜色）。
+            if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 0, QString("开始新的拓扑序列")});
+
+            TopoKahn topo;
+            mTopoRes = topo.runWithOrder(mDag, mAllTopoOrders[mTopoOrderCursor]);
+
+            // 缓存 steps
+            mSteps.clear();
+            mSteps.reserve((int)mTopoRes.steps.size());
+            for (const Step& s : mTopoRes.steps) mSteps.push_back(s);
+            mStepIndex = 0;
+
+            // 日志：显示正在播放的拓扑序列
+            if (logEdit) {
+                logEdit->clear();
+                logEdit->append(QString("Topo 演示：DAG n=%1, m=%2")
+                                .arg(mDag.n).arg(mDag.edges.size()));
+                logEdit->append(QString("当前演示：第 %1/%2 条拓扑序列")
+                                .arg(mTopoOrderPlaying + 1)
+                                .arg((int)mAllTopoOrders.size()));
+                if (mTopoRes.ok) {
+                    QStringList seq;
+                    for (int x : mTopoRes.order) seq << QString::number(x);
+                    logEdit->append(QString("本次序列：%1").arg(seq.join(" ")));
+                }
+                logEdit->append("----");
+            }
+
+            if (topoInfoLabel) {
+                topoInfoLabel->setText(QString("拓扑序列：共 %1 条，当前 %2/%1")
+                                       .arg((int)mAllTopoOrders.size())
+                                       .arg(mTopoOrderPlaying + 1));
+            }
+
+            // 下一次播放 -> 下一条序列
+            mTopoOrderCursor++;
+
+            // 有了 steps 才允许单步。
+            if (nextBtn) nextBtn->setEnabled(!mSteps.isEmpty());
+        }
+    }
+
     if (mSteps.isEmpty()) return;
 
     mPlaying = !mPlaying;
@@ -515,7 +645,7 @@ void MainWindow::onNextStep()
     if (mStepIndex >= mSteps.size()) {
         mPlaying = false;
         mPlayTimer.stop();
-        playBtn->setText("播放");
+        playBtn->setText(mAlgoMode == AlgoMode::TopoKahn ? tr("播放下一条") : tr("播放"));
 
         if (mAlgoMode == AlgoMode::TopoKahn) {
             // 汇总输出最终拓扑序。
@@ -524,10 +654,11 @@ void MainWindow::onNextStep()
                 if (mTopoRes.ok) {
                     QStringList seq;
                     for (int x : mTopoRes.order) seq << QString::number(x);
-                    logEdit->append(QString("拓扑序：%1").arg(seq.join(" ")));
+                    logEdit->append(QString("本次拓扑序（确认）：%1").arg(seq.join(" ")));
                 } else {
                     logEdit->append("拓扑失败：图中存在环（输出序列长度 < n）。");
                 }
+                logEdit->append(tr("提示：再次点击“播放下一条”，将生成并演示下一条拓扑序列。"));
             }
             statusBar()->showMessage("拓扑步骤播放完成", 2000);
         } else {
@@ -553,6 +684,18 @@ void MainWindow::onResetAlgo()
     mStepIndex = 0;
     mAlgoMode = AlgoMode::None;
     mTopoRes = TopoResult();
+
+    // 回放层面的“当前序列指针”复位（不强制清空 mAllTopoOrders，方便用户仅重播）。
+    mTopoOrderCursor = 0;
+    mTopoOrderPlaying = -1;
+    if (topoInfoLabel) {
+        if (mTopoOrdersReady && !mAllTopoOrders.empty()) {
+            topoInfoLabel->setText(QString("拓扑序列：共 %1 条，当前 0/%1（未播放）")
+                                   .arg((int)mAllTopoOrders.size()));
+        } else {
+            topoInfoLabel->setText(tr("拓扑序列：未生成"));
+        }
+    }
 
     if (logEdit) logEdit->clear();
     if (view) view->applyStep({StepType::ResetVisual, -1, -1, -1, 0, QString()});

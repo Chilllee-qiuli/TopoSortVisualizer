@@ -89,6 +89,12 @@ private:
     // 最近一次拓扑排序的结果缓存（用于最终输出序列）。
     TopoResult mTopoRes;
 
+    // --- 生成“所有拓扑序列”相关缓存 ---
+    std::vector<std::vector<int>> mAllTopoOrders; // 全部拓扑序列（对 DAG）
+    int mTopoOrderCursor = 0;                     // 下一次播放将使用的序列下标
+    int mTopoOrderPlaying = -1;                   // 当前正在播放的序列下标（用于日志显示）
+    bool mTopoOrdersReady = false;
+
     // --- 算法相关 界面 控件 ---
     QPushButton* runSccBtn = nullptr;
     QPushButton* runTopoBtn = nullptr;
@@ -96,6 +102,10 @@ private:
     QPushButton* nextBtn = nullptr;
     QPushButton* resetAlgoBtn = nullptr;
     QTextEdit* logEdit = nullptr;
+
+    // 展示：所有拓扑序列（可复制），以及当前播放进度。
+    QLabel* topoInfoLabel = nullptr;
+    QTextEdit* topoAllEdit = nullptr;
 
     // 第 5 步 界面（切换到缩点 DAG 视图）
     QPushButton* showDagBtn = nullptr;
