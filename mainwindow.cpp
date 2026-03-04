@@ -537,9 +537,9 @@ void MainWindow::onRunTopo()
 
     if (logEdit) {
         logEdit->clear();
-        logEdit->append(QString("Topo (All) on DAG: n=%1, m=%2").arg(mDag.n).arg(mDag.edges.size()));
-        logEdit->append(QString("All orders ok = %1").arg(all.ok ? "true" : "false"));
-        logEdit->append(QString("Total topo orders = %1").arg((int)mAllTopoOrders.size()));
+        logEdit->append(QString("Topo (总) DAG；统计: n=%1, m=%2").arg(mDag.n).arg(mDag.edges.size()));
+        logEdit->append(QString("所有点处理完毕 = %1").arg(all.ok ? "true" : "false"));
+        logEdit->append(QString("总拓扑数量 = %1").arg((int)mAllTopoOrders.size()));
         logEdit->append("----");
         logEdit->append(tr("点击“播放”：每次生成并动态演示 1 条拓扑序列；播完后再点“播放”会演示下一条。"));
     }
@@ -647,11 +647,11 @@ void MainWindow::onShowDAG()
 
     if (logEdit) {
         logEdit->append("----");
-        logEdit->append(QString("Switched to DAG: %1 SCC nodes, %2 edges")
+        logEdit->append(QString("切换到 DAG: %1 SCC 点数, %2 边数")
                         .arg(mDag.n)
                         .arg(mDag.edges.size()));
     }
-    statusBar()->showMessage(tr("DAG view ready"), 2000);
+    statusBar()->showMessage(tr("DAG 视图"), 2000);
 }
 
 void MainWindow::onShowOriginal()
@@ -669,7 +669,7 @@ void MainWindow::onShowOriginal()
     if (resetAlgoBtn) resetAlgoBtn->setEnabled(false);
     // 恢复到原图视图。
     QVector<QPointF> pos = mPosOriginalSnapshot;
-    if (pos.isEmpty()) pos = mPos; // fallback to the initial circle placement
+    if (pos.isEmpty()) pos = mPos;
 
     // 如果已有 SCC 结果，则在原图上保留 SCC 着色以保证视觉连贯性。
     QVector<int> colorId;
