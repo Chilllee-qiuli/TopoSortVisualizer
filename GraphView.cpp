@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QColor>
 #include <QVariant>
+#include <QFrame>
 
 namespace {
 /**
@@ -112,11 +113,15 @@ GraphView::GraphView(QWidget* parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
 
+    // 画布背景（与 QSS 匹配）。
+    setBackgroundBrush(QColor(248, 250, 252));
+    setFrameShape(QFrame::NoFrame);
+
 }
 
 void GraphView::showGraph(const Graph& g, const QVector<QPointF>& pos)
 {
-    // 保留旧接口，兼容现有调用方。
+    // 保留旧接口，兼容性。
     showGraphEx(g, pos, QStringList(), QVector<int>());
 
 }

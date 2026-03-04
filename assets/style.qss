@@ -1,0 +1,163 @@
+
+QMainWindow {
+    background: #f6f8fb;
+}
+
+QMenuBar {
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 2px;
+}
+
+QMenuBar::item {
+    padding: 6px 10px;
+    margin: 2px 2px;
+    border-radius: 8px;
+    background: transparent;
+    color: #111827;
+}
+
+QMenuBar::item:selected {
+    background: #eff6ff;
+}
+
+QMenu {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    padding: 6px;
+}
+
+QMenu::item {
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+QMenu::item:selected {
+    background: #eff6ff;
+}
+
+QStatusBar {
+    background: #ffffff;
+    border-top: 1px solid #e5e7eb;
+    color: #374151;
+}
+
+QDockWidget {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    background: #ffffff;
+    color: #111827;
+    padding: 8px 10px;
+    font-weight: 600;
+    border-bottom: 1px solid #eef2f7;
+}
+
+QDockWidget::widget {
+    background: #ffffff;
+}
+
+QGroupBox {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    margin-top: 12px;
+    background: #ffffff;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: #374151;
+    font-weight: 600;
+}
+
+QLabel {
+    color: #111827;
+}
+
+QLabel#EdgeBadge {
+    background: #111827;
+    color: #ffffff;
+    border-radius: 12px;
+    padding: 6px 10px;
+    font-weight: 700;
+}
+
+QLabel#SubtleLabel {
+    color: #6b7280;
+}
+
+QLabel#HintText {
+    color: #6b7280;
+    line-height: 1.2;
+}
+
+QLabel#FormLabel {
+    color: #374151;
+    font-weight: 600;
+}
+
+QPushButton {
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background: #1d4ed8;
+}
+
+QPushButton:pressed {
+    background: #1e40af;
+}
+
+QPushButton:disabled {
+    background: #cbd5e1;
+    color: #64748b;
+}
+
+QPushButton#PrimaryButton {
+    background: #111827;
+}
+
+QPushButton#PrimaryButton:hover {
+    background: #0b1220;
+}
+
+QSpinBox, QTextEdit, QLineEdit, QPlainTextEdit {
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 6px 8px;
+    selection-background-color: #2563eb;
+}
+
+QTextEdit[readOnly="true"] {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+QCheckBox {
+    spacing: 8px;
+    color: #111827;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+}
+
+QGraphicsView {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}

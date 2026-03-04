@@ -17,6 +17,7 @@ set(PROJECT_SOURCES
         mainwindow.cpp
         mainwindow.h
         mainwindow.ui
+        resources.qrc
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -36,6 +37,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         Steps.h TarjanSCC.cpp TarjanSCC.h TopoKahn.cpp TopoKahn.h
         Graph.h
         Condense.cpp Condense.h Graph.h GraphView.cpp GraphView.h main.cpp mainwindow.cpp mainwindow.h mainwindow.ui Steps.h TarjanSCC.cpp TarjanSCC.h TopoKahn.cpp TopoKahn.h
+        assets/style.qss
 
 
     )
@@ -82,4 +84,10 @@ install(TARGETS TopoSortVisualizer
 
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(TopoSortVisualizer)
+endif()
+
+
+# Ensure UTF-8 source/exec charset on MinGW/GNU (Windows)
+if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(TopoSortVisualizer PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)
 endif()

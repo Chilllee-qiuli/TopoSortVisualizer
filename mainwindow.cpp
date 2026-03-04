@@ -20,6 +20,14 @@ QT一般规范：
 #include <cmath>
 #include <QRegularExpression>
 
+#include <QHBoxLayout>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QFrame>
+#include <QCheckBox>
+#include <QFile>
+#include <QApplication>
+
 static QVector<QPointF> makeCirclePos(int n, double radius = 250.0)
 {
     QVector<QPointF> pos(n + 1);
@@ -58,131 +66,234 @@ void MainWindow::updateEdgeCountUI()
 void MainWindow::setupDocks()
 {
     // ----------------------
-    // 控制面板1：建图
+    // 控制面板1：建图 / Graph
     // ----------------------
     mGraphDock = new QDockWidget(tr("建图"), this);
-    mGraphDock->setObjectName("建图面板");
+    mGraphDock->setObjectName("GraphDock");
+    mGraphDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
 
     auto* graphPanel = new QWidget(mGraphDock);
+    graphPanel->setObjectName("GraphPanel");
+
     auto* gLay = new QVBoxLayout(graphPanel);
+    gLay->setContentsMargins(12, 12, 12, 12);
+    gLay->setSpacing(10);
 
+    // 顶部：边数徽章
+    auto* badgeRow = new QHBoxLayout();
     edgeCountLabel = new QLabel(graphPanel);
-    edgeCountLabel->setText("边s: 0");
-    gLay->addWidget(edgeCountLabel);
+    edgeCountLabel->setObjectName("EdgeBadge");
+    edgeCountLabel->setText(tr("当前边数: 0"));
+    badgeRow->addWidget(edgeCountLabel);
+    badgeRow->addStretch(1);
+    gLay->addLayout(badgeRow);
 
-    gLay->addWidget(new QLabel(tr("节点数量 (n):")));
-    nSpin = new QSpinBox(graphPanel);
+    // Graph Setup
+    auto* gbSetup = new QGroupBox(tr("图设置"), graphPanel);
+    auto* setupLay = new QVBoxLayout(gbSetup);
+    setupLay->setContentsMargins(12, 14, 12, 12);
+    setupLay->setSpacing(10);
+
+    auto* form = new QFormLayout();
+    form->setLabelAlignment(Qt::AlignLeft);
+    form->setFormAlignment(Qt::AlignTop);
+    form->setHorizontalSpacing(10);
+    form->setVerticalSpacing(8);
+
+    nSpin = new QSpinBox(gbSetup);
     nSpin->setRange(1, 200);
     nSpin->setValue(6);
-    gLay->addWidget(nSpin);
+    form->addRow(tr("节点数量 (n)"), nSpin);
+    setupLay->addLayout(form);
 
-    auto* btnCreate = new QPushButton(tr("点击建图！"), graphPanel);
-    gLay->addWidget(btnCreate);
+    auto* btnCreate = new QPushButton(tr("新建图"), gbSetup);
+    btnCreate->setObjectName("PrimaryButton");
+    setupLay->addWidget(btnCreate);
 
-    gLay->addSpacing(10);
-    gLay->addWidget(new QLabel(tr("加一条边 (u -> v):")));
+    gLay->addWidget(gbSetup);
 
-    uSpin = new QSpinBox(graphPanel);
-    vSpin = new QSpinBox(graphPanel);
+    // Add Edge
+    auto* gbEdge = new QGroupBox(tr("加边"), graphPanel);
+    auto* edgeLay = new QVBoxLayout(gbEdge);
+    edgeLay->setContentsMargins(12, 14, 12, 12);
+    edgeLay->setSpacing(10);
+
+    auto* uvRow = new QHBoxLayout();
+    uvRow->setSpacing(8);
+
+    auto* uLabel = new QLabel(tr("u"), gbEdge);
+    uLabel->setObjectName("FormLabel");
+    uSpin = new QSpinBox(gbEdge);
+
+    auto* vLabel = new QLabel(tr("v"), gbEdge);
+    vLabel->setObjectName("FormLabel");
+    vSpin = new QSpinBox(gbEdge);
+
     uSpin->setRange(1, 6);
     vSpin->setRange(1, 6);
-    gLay->addWidget(uSpin);
-    gLay->addWidget(vSpin);
 
-    auto* btnAddEdge = new QPushButton(tr("加边"), graphPanel);
-    gLay->addWidget(btnAddEdge);
+    uvRow->addWidget(uLabel);
+    uvRow->addWidget(uSpin, 1);
+    uvRow->addSpacing(6);
+    uvRow->addWidget(vLabel);
+    uvRow->addWidget(vSpin, 1);
 
-    gLay->addSpacing(10);
-    gLay->addWidget(new QLabel(tr("批量加边 (u -> v):")));
-    edgesEdit = new QTextEdit(graphPanel);
-    edgesEdit->setPlaceholderText("例如:\n1 2\n2 3\n1 3");
-    gLay->addWidget(edgesEdit);
+    edgeLay->addLayout(uvRow);
 
-    auto* btnAddBatch = new QPushButton(tr("从文本中加边"), graphPanel);
-    gLay->addWidget(btnAddBatch);
+    auto* btnAddEdge = new QPushButton(tr("添加边  (u → v)"), gbEdge);
+    edgeLay->addWidget(btnAddEdge);
 
-    gLay->addSpacing(10);
-    gLay->addWidget(new QLabel(tr("提示：按住shift同时点击可以在图中加边.")));
+    auto* cbEdgeMode = new QCheckBox(tr("边编辑模式：直接点击两点即可加边（无需按 Shift）"), gbEdge);
+    cbEdgeMode->setChecked(false);
+    edgeLay->addWidget(cbEdgeMode);
 
-    gLay->addStretch(1);
+    gLay->addWidget(gbEdge);
+
+    // Batch
+    auto* gbBatch = new QGroupBox(tr("批量加边"), graphPanel);
+    auto* batchLay = new QVBoxLayout(gbBatch);
+    batchLay->setContentsMargins(12, 14, 12, 12);
+    batchLay->setSpacing(10);
+
+    edgesEdit = new QTextEdit(gbBatch);
+    edgesEdit->setPlaceholderText(tr("每行一条边：u v\n例如：\n1 2\n2 3\n1 3"));
+    edgesEdit->setMinimumHeight(90);
+    batchLay->addWidget(edgesEdit);
+
+    auto* btnAddBatch = new QPushButton(tr("从文本中加边"), gbBatch);
+    batchLay->addWidget(btnAddBatch);
+
+    gLay->addWidget(gbBatch);
+
+    // Tips
+    auto* tips = new QLabel(tr(R"(小技巧：
+- 拖动节点可手动调整布局
+- 双击节点可固定/解除固定
+- 按住 Shift 依次点击两个节点也可加边
+- 图很乱时，等一会儿力导布局会自动舒展)"), graphPanel);
+    tips->setObjectName("HintText");
+    tips->setWordWrap(true);
+    gLay->addWidget(tips);
+gLay->addStretch(1);
+
     graphPanel->setLayout(gLay);
     mGraphDock->setWidget(graphPanel);
-    addDockWidget(Qt::RightDockWidgetArea, mGraphDock);
+    addDockWidget(Qt::LeftDockWidgetArea, mGraphDock);
 
     // 连接“建图面板”的信号。
     connect(btnCreate, &QPushButton::clicked, this, &MainWindow::onCreateGraph);
     connect(btnAddEdge, &QPushButton::clicked, this, &MainWindow::onAddEdge);
     connect(btnAddBatch, &QPushButton::clicked, this, &MainWindow::onAddEdgesFromText);
+    connect(cbEdgeMode, &QCheckBox::toggled, this, [this](bool on){
+        if (view) view->setEdgeEditMode(on);
+    });
 
     // ----------------------
-    // 面板2：算法
+    // Dock 2：算法 / Algorithm
     // ----------------------
     mAlgoDock = new QDockWidget(tr("算法"), this);
-    mAlgoDock->setObjectName("算法面板");
+    mAlgoDock->setObjectName("AlgoDock");
+    mAlgoDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
 
     auto* algoPanel = new QWidget(mAlgoDock);
+    algoPanel->setObjectName("AlgoPanel");
+
     auto* aLay = new QVBoxLayout(algoPanel);
+    aLay->setContentsMargins(12, 12, 12, 12);
+    aLay->setSpacing(10);
 
-    aLay->addWidget(new QLabel(tr("Tarjan可视化缩点")));
+    // SCC group
+    auto* gbScc = new QGroupBox(tr("Tarjan 强连通分量（缩点）"), algoPanel);
+    auto* sccLay = new QVBoxLayout(gbScc);
+    sccLay->setContentsMargins(12, 14, 12, 12);
+    sccLay->setSpacing(10);
 
-    runSccBtn = new QPushButton(tr("回到开始缩点 (Tarjan)"), algoPanel);
-    aLay->addWidget(runSccBtn);
+    runSccBtn = new QPushButton(tr("回到开始缩点 (Tarjan)"), gbScc);
+    runSccBtn->setObjectName("PrimaryButton");
+    sccLay->addWidget(runSccBtn);
 
-    // **切换到 DAG 显示**：质心初始位置 + 再跑力导布局
-    // 只有在拿到有效 SCC 结果后，这些按钮才可用。
-    showDagBtn = new QPushButton(tr("展示 DAG (缩点结果)"), algoPanel);
+    showDagBtn = new QPushButton(tr("展示 DAG（缩点结果）"), gbScc);
     showDagBtn->setEnabled(false);
-    aLay->addWidget(showDagBtn);
+    sccLay->addWidget(showDagBtn);
 
-    showOriBtn = new QPushButton(tr("回溯"), algoPanel);
+    showOriBtn = new QPushButton(tr("回到原图"), gbScc);
     showOriBtn->setEnabled(false);
-    aLay->addWidget(showOriBtn);
+    sccLay->addWidget(showOriBtn);
 
-    aLay->addSpacing(8);
-    aLay->addWidget(new QLabel(tr("Topo 排序可视化 (Kahn)")));
+    aLay->addWidget(gbScc);
 
-    runTopoBtn = new QPushButton(tr("开始拓扑排序 (Kahn)"), algoPanel);
+    // Topo group
+    auto* gbTopo = new QGroupBox(tr("拓扑排序（Kahn）与所有拓扑序列"), algoPanel);
+    auto* topoLay = new QVBoxLayout(gbTopo);
+    topoLay->setContentsMargins(12, 14, 12, 12);
+    topoLay->setSpacing(10);
+
+    runTopoBtn = new QPushButton(tr("开始拓扑排序 (Kahn)"), gbTopo);
     runTopoBtn->setEnabled(false);
-    aLay->addWidget(runTopoBtn);
+    runTopoBtn->setObjectName("PrimaryButton");
+    topoLay->addWidget(runTopoBtn);
 
-    // 展示所有拓扑序列（文本形式，可复制）。
-    topoInfoLabel = new QLabel(tr("拓扑序列：未生成"), algoPanel);
-    aLay->addWidget(topoInfoLabel);
+    topoInfoLabel = new QLabel(tr("拓扑序列：未生成"), gbTopo);
+    topoInfoLabel->setObjectName("SubtleLabel");
+    topoLay->addWidget(topoInfoLabel);
 
-    aLay->addWidget(new QLabel(tr("所有拓扑序列（按“播放”逐条演示）:"), algoPanel));
-    topoAllEdit = new QTextEdit(algoPanel);
+    topoAllEdit = new QTextEdit(gbTopo);
     topoAllEdit->setReadOnly(true);
-    topoAllEdit->setMinimumHeight(120);
+    topoAllEdit->setMinimumHeight(130);
     topoAllEdit->setPlaceholderText(tr("点击“开始拓扑排序”后，会在这里列出全部拓扑序列（数量过大时仅展示前若干条）。"));
-    aLay->addWidget(topoAllEdit);
+    topoLay->addWidget(topoAllEdit);
 
-    // 播放：每次点击播放（在非播放状态）都会“加载并演示一条拓扑序列”。
-    playBtn = new QPushButton(tr("播放"), algoPanel);
+    aLay->addWidget(gbTopo);
+
+    // Playback group
+    auto* gbPlay = new QGroupBox(tr("回放控制"), algoPanel);
+    auto* playLay = new QVBoxLayout(gbPlay);
+    playLay->setContentsMargins(12, 14, 12, 12);
+    playLay->setSpacing(10);
+
+    auto* playRow = new QHBoxLayout();
+    playRow->setSpacing(8);
+
+    playBtn = new QPushButton(tr("播放/暂停"), gbPlay);
     playBtn->setEnabled(false);
-    aLay->addWidget(playBtn);
+    playRow->addWidget(playBtn, 1);
 
-    nextBtn = new QPushButton(tr("步骤"), algoPanel);
+    nextBtn = new QPushButton(tr("下一步"), gbPlay);
     nextBtn->setEnabled(false);
-    aLay->addWidget(nextBtn);
+    playRow->addWidget(nextBtn, 1);
 
-    resetAlgoBtn = new QPushButton(tr("重置"), algoPanel);
+    resetAlgoBtn = new QPushButton(tr("重置"), gbPlay);
     resetAlgoBtn->setEnabled(false);
-    aLay->addWidget(resetAlgoBtn);
+    playRow->addWidget(resetAlgoBtn, 1);
 
-    aLay->addWidget(new QLabel(tr("步骤日志:")));
-    logEdit = new QTextEdit(algoPanel);
+    playLay->addLayout(playRow);
+
+    auto* playHint = new QLabel(tr("提示：按“播放/暂停”可自动演示；按“下一步”逐步查看。"), gbPlay);
+    playHint->setObjectName("HintText");
+    playHint->setWordWrap(true);
+    playLay->addWidget(playHint);
+
+    aLay->addWidget(gbPlay);
+
+    // Log group
+    auto* gbLog = new QGroupBox(tr("步骤日志"), algoPanel);
+    auto* logLay = new QVBoxLayout(gbLog);
+    logLay->setContentsMargins(12, 14, 12, 12);
+    logLay->setSpacing(10);
+
+    logEdit = new QTextEdit(gbLog);
     logEdit->setReadOnly(true);
-    logEdit->setMinimumHeight(140);
-    aLay->addWidget(logEdit);
+    logEdit->setMinimumHeight(160);
+    logLay->addWidget(logEdit);
+
+    aLay->addWidget(gbLog);
 
     aLay->addStretch(1);
 
     algoPanel->setLayout(aLay);
     mAlgoDock->setWidget(algoPanel);
 
-    // 放在建图面板下方，减少视觉拥挤。
     addDockWidget(Qt::RightDockWidgetArea, mAlgoDock);
-    splitDockWidget(mGraphDock, mAlgoDock, Qt::Vertical);
 
     // 连接“算法面板”的信号。
     connect(runSccBtn, &QPushButton::clicked, this, &MainWindow::onRunSCC);
@@ -197,11 +308,23 @@ void MainWindow::setupDocks()
     setupPanelsMenu();
 }
 
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+
+    // -------- Modern UI / QSS --------
+    setWindowTitle(tr("TopoSortVisualizer · 拓扑排序可视化"));
+    resize(1180, 760);
+
+    // 从 Qt 资源读取 QSS（CSS-like 写法）。
+    QFile qssFile(":/style/style.qss");
+    if (qssFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qApp->setStyleSheet(QString::fromUtf8(qssFile.readAll()));
+        qssFile.close();
+    }
 
     view = new GraphView(this);
     setCentralWidget(view);
